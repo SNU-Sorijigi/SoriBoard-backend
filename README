@@ -1,0 +1,30 @@
++-------------------------+
+| SoriBoard 2.0 / backend |
++-------------------------+
+
+        Backend of SNU Sorijigi time manager - SoriBoard 2.0
+
+
+WHAT IS SoriBoard 2.0?
+
+SoriBoard 2.0 is an enhanced version of SoriBoard 1.3 which is on
+"https://github.com/GTPV/time_manager_sorijigi/".
+
+
+WHAT IS DIFFERENT - COMPARED TO SoriBoard 1.3?
+
+SoriBoard 2.0 separated the frontend and backend of SoriBoard 1.3,
+which was originally based on Django. The frontend of SoriBoard 2.0 is
+based on Svelte, and the backend is based on Django REST framework.
+
+
+UPDATE NOTES
+
+Enhancements:
+
+Bug fixes:
+
+
+HOW TO RUN?
+
+SoriBoard is deployed on Docker inside the Synology NAS of SNU Sorijigi.
