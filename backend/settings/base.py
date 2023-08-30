@@ -40,6 +40,9 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
 
     "rest_framework",
+
+    # Custom apps
+    "apps.time_manage",
 ]
 
 MIDDLEWARE = [
