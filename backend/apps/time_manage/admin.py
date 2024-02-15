@@ -1,6 +1,16 @@
 from django.contrib import admin
 
-from .models import User, SemesterInfo, TimeInfo, MusicInfo, PlayerInfo, ComposerInfo, ConductorInfo, OrchestraInfo, SemesterUserInfo
+from .models import (
+    User,
+    SemesterInfo,
+    TimeInfo,
+    MusicInfo,
+    PlayerInfo,
+    ComposerInfo,
+    ConductorInfo,
+    OrchestraInfo,
+    SemesterUserInfo,
+)
 
 admin.site.register(User)
 admin.site.register(SemesterInfo)
