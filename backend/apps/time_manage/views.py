@@ -7,18 +7,30 @@ from .models import User, SemesterInfo, TimeInfo, MusicInfo, PlayerInfo, Compose
 from .serializers import UserSerializer, SemesterInfoSerializer, TimeInfoSerializer, MusicInfoSerializer, PlayerInfoSerializer, ComposerInfoSerializer, ConductorInfoSerializer, OrchestraInfoSerializer, SemesterUserInfoSerializer, SemesterUserInfoPostSerializer
 
 class CheckTimeInfoAPIView(APIView):
-    def get(self, request, year, month, day, time):
-        date_str = f"{year}-{month}-{day}"
+    def get(self, request, year, month):
         try:
-            date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
-        except ValueError:
-            return Response({"error": "Invalid date format"}, status=400)
+            start_date, end_date = self.get_month_date_range(year, month)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=400)
+        
+        month_status = []
+        for day in (start_date + datetime.timedelta(days=n) for n in range((end_date - start_date).days + 1)):
+            day_status = []
+            for time in range(1, 6):
+                time_exists = TimeInfo.objects.filter(date=day, time=time).exists()
+                day_status.append(time_exists)
+            month_status.extend(day_status)
+        
+        return Response(month_status)
 
-        time_info = TimeInfo.objects.filter(date=date_obj, time=time).first()
-        if time_info:
-            return Response({"id": time_info.id})
-        else:
-            return Response({"error": "TimeInfo not found"}, status=404)
+    def get_month_date_range(self, year, month):
+        year, month = int(year), int(month)
+
+        if month < 1 or month > 12:
+            raise ValueError("Month must be betwen 1 and 12")
+        first_day = datetime.date(year, month, 1)
+        last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
+        return first_day, last_day
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()

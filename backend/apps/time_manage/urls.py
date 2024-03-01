@@ -18,5 +18,5 @@ router.register(r'semesteruserpost', SemesterUserInfoPostViewSet, basename='seme
 
 urlpatterns = [
     path('', include(router.urls)),
-    path('check-timeinfo/<int:year>/<int:month>/<int:day>/<int:time>', CheckTimeInfoAPIView.as_view(), name='check_timeinfo'),
+    path('check-timeinfo/<int:year>/<int:month>/', CheckTimeInfoAPIView.as_view(), name='check_timeinfo'),
 ]
