@@ -1,8 +1,24 @@
 from rest_framework import viewsets, status
+from rest_framework.views import APIView
+import datetime
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from .models import User, SemesterInfo, TimeInfo, MusicInfo, PlayerInfo, ComposerInfo, ConductorInfo, OrchestraInfo, SemesterUserInfo
 from .serializers import UserSerializer, SemesterInfoSerializer, TimeInfoSerializer, MusicInfoSerializer, PlayerInfoSerializer, ComposerInfoSerializer, ConductorInfoSerializer, OrchestraInfoSerializer, SemesterUserInfoSerializer, SemesterUserInfoPostSerializer
+
+class CheckTimeInfoAPIView(APIView):
+    def get(self, request, year, month, day, time):
+        date_str = f"{year}-{month}-{day}"
+        try:
+            date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return Response({"error": "Invalid date format"}, status=400)
+
+        time_info = TimeInfo.objects.filter(date=date_obj, time=time).first()
+        if time_info:
+            return Response({"id": time_info.id})
+        else:
+            return Response({"error": "TimeInfo not found"}, status=404)
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()

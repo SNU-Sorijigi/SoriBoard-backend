@@ -46,34 +46,53 @@ class TimeInfo(models.Model):
     class Meta:
         db_table = 'time_info'
 
+# 선곡 정보
+class TimeMusicInfo(models.Model):
+    time_info = models.ForeignKey('TimeInfo', on_delete=models.CASCADE) # 타임 id
+    order = models.IntegerField() # 순서
+    is_requested = models.BooleanField(default=False) # 신청곡
+    source = models.CharField(max_length=20) # 소스
+    cd_id = models.CharField(max_length=20, blank=True, null=True) # 음반
+    music = models.ForeignKey('MusicInfo', on_delete=models.CASCADE, blank=True, null=True) # 곡
+    semi_title = models.ForeignKey('SemiTitleInfo', on_delete=models.CASCADE, blank=True, null=True) # 세부 제목
+    conductor = models.ForeignKey('ConductorInfo', on_delete=models.CASCADE, blank=True, null=True) # 지휘자
+    orchestra = models.ForeignKey('OrchestraInfo', on_delete=models.CASCADE, blank=True, null=True) # 오케스트라
+    players = models.ManyToManyField('PlayerInfo') # 연주자
+
+    class Meta:
+        db_table = 'time_music_info'
+
 # 곡 정보
 class MusicInfo(models.Model):
-    time_info = models.ForeignKey('TimeInfo', on_delete=models.CASCADE)
-    is_requested = models.BooleanField(default=False)
-    source = models.CharField(max_length=20)
-    cd_id = models.CharField(max_length=20, blank=True, null=True)
-    title = models.CharField(max_length=200)
-    semi_title = models.CharField(max_length=200, blank=True, null=True)
     composer = models.ForeignKey('ComposerInfo', related_name='musics', on_delete=models.CASCADE, blank=True, null=True)
-    conductor = models.ForeignKey('ConductorInfo', on_delete=models.CASCADE, blank=True, null=True)
-    orchestra = models.ForeignKey('OrchestraInfo', on_delete=models.CASCADE, blank=True, null=True)
-    players = models.ManyToManyField('PlayerInfo')
+    title = models.CharField(max_length=200)
 
     class Meta:
         db_table = 'music_info'
 
+# 세부 제목 정보
+class SemiTitleInfo(models.Model):
+    music = models.ForeignKey('MusicInfo', related_name='semi_titles', on_delete=models.CASCADE)
+    semi_title = models.CharField(max_length=200)
+
+    class Meta:
+        db_table = 'semi_title_info'
+
+# 작곡가 정보
 class ComposerInfo(models.Model):
     name = models.CharField(max_length=50)
 
     class Meta:
         db_table = 'composer_info'
 
+# 지휘자 정보
 class ConductorInfo(models.Model):
     name = models.CharField(max_length=50)
 
     class Meta:
-        db_table = 'conducter_info'
+        db_table = 'conductor_info'
 
+# 오케스트라 정보
 class OrchestraInfo(models.Model):
     name = models.CharField(max_length=50)
 
