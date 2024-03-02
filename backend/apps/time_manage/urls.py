@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import CheckTimeInfoAPIView, UserViewSet, SemesterInfoViewSet, TimeInfoViewSet, MusicInfoViewSet, PlayerInfoViewSet, ComposerInfoViewSet, ConductorInfoViewSet, OrchestraInfoViewSet, SemesterUserInfoViewSet, SemesterUserInfoPostViewSet, SemesterInfoPostViewSet
+from .views import CheckTimeInfoAPIView, CreateTimeInfoAPIView, TimeInfoDetailView, UserViewSet, SemesterInfoViewSet, TimeInfoViewSet, MusicInfoViewSet, PlayerInfoViewSet, ComposerInfoViewSet, ConductorInfoViewSet, OrchestraInfoViewSet, SemesterUserInfoViewSet, SemesterUserInfoPostViewSet, SemesterInfoPostViewSet
 
 router = DefaultRouter()
 router.register(r'users', UserViewSet)
@@ -18,5 +18,7 @@ router.register(r'semesteruserpost', SemesterUserInfoPostViewSet, basename='seme
 
 urlpatterns = [
     path('', include(router.urls)),
-    path('check-timeinfo/<int:year>/<int:month>/', CheckTimeInfoAPIView.as_view(), name='check_timeinfo'),
+    path('check-timeinfo/<int:year>/<int:month>/<int:day>/<int:time>', CheckTimeInfoAPIView.as_view(), name='check_timeinfo'),
+    path('timeinfo', CreateTimeInfoAPIView.as_view(), name='create_timeinfo'),
+    path('timeinfo/<int:pk>/', TimeInfoDetailView.as_view(), name='timeinfo-detail'),
 ]
