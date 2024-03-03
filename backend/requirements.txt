@@ -1,6 +1,10 @@
 asgiref==3.7.2
+async-timeout==4.0.3
 channels==4.0.0
+channels-redis==4.2.0
 Django==4.2.4
 djangorestframework==3.14.0
+msgpack==1.0.8
 pytz==2023.3
+redis==5.0.2
 sqlparse==0.4.4

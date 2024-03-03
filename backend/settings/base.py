@@ -73,9 +73,17 @@ TEMPLATES = [
     },
 ]
 
-ASGI_APPLICATION = "asgi.application"
+ASGI_APPLICATION = "backend.asgi.application"
 
-WSGI_APPLICATION = "wsgi.application"
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+        },
+}
+
+STREAM_SOCKET_GROUP_NAME = 'tv_socket_group'
+
+WSGI_APPLICATION = "backend.wsgi.application"
 
 
 # Database
