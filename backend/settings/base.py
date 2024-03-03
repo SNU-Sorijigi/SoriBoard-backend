@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "channels",
     # Custom apps
     "apps.time_manage",
 ]
@@ -71,6 +72,8 @@ TEMPLATES = [
         },
     },
 ]
+
+ASGI_APPLICATION = "asgi.application"
 
 WSGI_APPLICATION = "wsgi.application"
 
