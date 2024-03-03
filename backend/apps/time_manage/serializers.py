@@ -45,19 +45,23 @@ class TimeMusicListSerializer(serializers.ModelSerializer):
     class Meta:
         model = TimeMusic
         fields = [
+            "id",
             "order",
             "is_requested",
             "source",
             "cd_id",
             "music_title",
             "music_semi_title",
-            "composer_name" "conductor_name",
+            "composer_name",
+            "conductor_name",
             "orchestra_name",
             "player_names",
         ]
 
     def get_player_names(self, obj):
-        return [player.name for player in obj.players.all()]
+        return [
+            (player.instrument + ": " + player.name) for player in obj.players.all()
+        ]
 
 
 class TimeInfoDetailSerializer(serializers.ModelSerializer):
@@ -74,18 +78,27 @@ class TimeInfoDetailSerializer(serializers.ModelSerializer):
 
 class TimeMusicSerializer(serializers.ModelSerializer):
     title = serializers.CharField(write_only=True)
-    semi_title = serializers.CharField(write_only=True, required=False)
+    semi_title = serializers.CharField(
+        write_only=True, allow_blank=True, required=False
+    )
     composer_name = serializers.CharField(write_only=True)
-    conductor_name = serializers.CharField(write_only=True, required=False)
-    orchestra_name = serializers.CharField(write_only=True, required=False)
+    conductor_name = serializers.CharField(
+        write_only=True, allow_blank=True, required=False
+    )
+    orchestra_name = serializers.CharField(
+        write_only=True, allow_blank=True, required=False
+    )
     player_names = serializers.ListField(
-        child=serializers.CharField(), write_only=True, required=False
+        child=serializers.CharField(write_only=True, allow_blank=True, required=False),
+        write_only=True,
+        allow_empty=True,
     )
 
     class Meta:
         model = TimeMusic
         fields = "__all__"
         extra_kwargs = {
+            "source": {"allow_blank": False},
             "music": {"read_only": True},
             "music_detail": {"read_only": True},
             "conductor": {"read_only": True},
@@ -94,6 +107,53 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         }
 
     def create(self, validated_data):
+        composer_name = validated_data.pop("composer_name", "")
+        composer, _ = Composer.objects.get_or_create(name=composer_name)
+
+        conductor_name = validated_data.pop("conductor_name", "")
+        conductor, _ = (
+            Conductor.objects.get_or_create(name=conductor_name)
+            if conductor_name
+            else (None, False)
+        )
+
+        orchestra_name = validated_data.pop("orchestra_name", "")
+        orchestra, _ = (
+            Orchestra.objects.get_or_create(name=orchestra_name)
+            if orchestra_name
+            else (None, False)
+        )
+
+        title = validated_data.pop("title")
+        semi_title = validated_data.pop("semi_title", None)
+        music, _ = Music.objects.get_or_create(title=title, composer=composer)
+        music_detail, _ = (
+            MusicDetail.objects.get_or_create(music=music, semi_title=semi_title)
+            if semi_title
+            else (None, False)
+        )
+
+        player_names = validated_data.pop("player_names", [])
+
+        time_music = TimeMusic.objects.create(
+            **validated_data,
+            music=music,
+            music_detail=music_detail,
+            conductor=conductor,
+            orchestra=orchestra
+        )
+
+        for player_name in player_names:
+            if player_name:
+                instrument, name = player_name.split(": ")
+                player, _ = Player.objects.get_or_create(
+                    instrument=instrument.strip(), name=name.strip()
+                )
+                time_music.players.add(player)
+
+        return time_music
+
+    def update(self, instance, validated_data):
         player_names = validated_data.pop("player_names", [])
         title = validated_data.pop("title")
         semi_title = validated_data.pop("semi_title", None)
@@ -103,37 +163,42 @@ class TimeMusicSerializer(serializers.ModelSerializer):
 
         composer, _ = Composer.objects.get_or_create(name=composer_name)
 
+        if conductor_name:
+            _, conductor_name = conductor_name.split(": ")
+            conductor, _ = Conductor.objects.get_or_create(name=conductor_name)
+            instance.conductor = conductor
+        else:
+            instance.conductor = None
+
+        if orchestra_name:
+            orchestra, _ = Orchestra.objects.get_or_create(name=orchestra_name)
+            instance.orchestra = orchestra
+        else:
+            instance.orchestra = None
+
         music, _ = Music.objects.get_or_create(title=title, composer=composer)
-        music_detail = None
+
         if semi_title:
             music_detail, _ = MusicDetail.objects.get_or_create(
                 music=music, semi_title=semi_title
             )
+            instance.music_detail = music_detail
+        else:
+            instance.music_detail = None
 
-        conductor = None
-        if conductor_name:
-            conductor, _ = Conductor.objects.get_or_create(name=conductor_name)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
 
-        orchestra = None
-        if orchestra_name:
-            orchestra, _ = Orchestra.objects.get_or_create(name=orchestra_name)
+        if player_names:
+            instance.players.clear()
+            for player_name in player_names:
+                instrument, name = player_name.split(": ")
+                player, _ = Player.objects.get_or_create(
+                    instrument=instrument.strip(), name=name.strip()
+                )
+                instance.players.add(player)
+        else:
+            instance.players.clear()
 
-        time_music = TimeMusic.objects.create(
-            music=music,
-            music_detail=music_detail,
-            conductor=conductor,
-            orchestra=orchestra,
-            **validated_data
-        )
-
-        for player_name in player_names:
-            instrument, name = player_name.split(": ")
-            player, _ = Player.objects.get_or_create(
-                name=name.strip(), instrument=instrument.strip()
-            )
-            time_music.players.add(player)
-
-        return time_music
-
-    def update(self, instance, validated_data):
-        return super().update(instance, validated_data)
+        return instance
