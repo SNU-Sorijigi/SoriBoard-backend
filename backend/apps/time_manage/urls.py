@@ -1,45 +1,11 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import (
-    CheckTimeInfoAPIView,
-    CreateTimeInfoAPIView,
-    TimeInfoDetailView,
-    UserViewSet,
-    SemesterInfoViewSet,
-    TimeInfoViewSet,
-    MusicInfoViewSet,
-    PlayerInfoViewSet,
-    ComposerInfoViewSet,
-    ConductorInfoViewSet,
-    OrchestraInfoViewSet,
-    SemesterUserInfoViewSet,
-    SemesterUserInfoPostViewSet,
-    SemesterInfoPostViewSet,
-)
+from .views import *
 
 router = DefaultRouter()
-router.register(r"users", UserViewSet)
-
-router.register(r"music", MusicInfoViewSet)
-router.register(r"player", PlayerInfoViewSet)
-router.register(r"semester", SemesterInfoViewSet, basename="semester")
-router.register(r"semesterpost", SemesterInfoPostViewSet, basename="semesterpost")
-router.register(r"time", TimeInfoViewSet)
-router.register(r"composer", ComposerInfoViewSet)
-router.register(r"conductor", ConductorInfoViewSet)
-router.register(r"orchestra", OrchestraInfoViewSet)
-router.register(r"semesteruser", SemesterUserInfoViewSet, basename="semesteruser")
-router.register(
-    r"semesteruserpost", SemesterUserInfoPostViewSet, basename="semesteruserpost"
-)
+router.register(r"timeinfo", TimeInfoViewSet, basename="timeinfo")
+router.register(r"timemusic", TimeMusicViewSet, basename="timemusic")
 
 urlpatterns = [
     path("", include(router.urls)),
-    path(
-        "check-timeinfo/<int:year>/<int:month>/<int:day>/<int:time>",
-        CheckTimeInfoAPIView.as_view(),
-        name="check_timeinfo",
-    ),
-    path("timeinfo", CreateTimeInfoAPIView.as_view(), name="create_timeinfo"),
-    path("timeinfo/<int:pk>/", TimeInfoDetailView.as_view(), name="timeinfo-detail"),
 ]

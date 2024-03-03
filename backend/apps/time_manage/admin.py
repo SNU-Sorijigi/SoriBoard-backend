@@ -1,23 +1,13 @@
 from django.contrib import admin
 
-from .models import (
-    User,
-    SemesterInfo,
-    TimeInfo,
-    MusicInfo,
-    PlayerInfo,
-    ComposerInfo,
-    ConductorInfo,
-    OrchestraInfo,
-    SemesterUserInfo,
-)
+from .models import *
 
 admin.site.register(User)
-admin.site.register(SemesterInfo)
+admin.site.register(Semester)
 admin.site.register(TimeInfo)
-admin.site.register(MusicInfo)
-admin.site.register(PlayerInfo)
-admin.site.register(ComposerInfo)
-admin.site.register(ConductorInfo)
-admin.site.register(OrchestraInfo)
-admin.site.register(SemesterUserInfo)
+admin.site.register(Music)
+admin.site.register(Player)
+admin.site.register(Composer)
+admin.site.register(Conductor)
+admin.site.register(Orchestra)
+admin.site.register(SemesterUser)
