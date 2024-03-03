@@ -3,8 +3,31 @@ from rest_framework.views import APIView
 import datetime
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from .models import User, SemesterInfo, TimeInfo, MusicInfo, PlayerInfo, ComposerInfo, ConductorInfo, OrchestraInfo, SemesterUserInfo
-from .serializers import TimeInfoGetSerializer, UserSerializer, SemesterInfoSerializer, TimeInfoSerializer, MusicInfoSerializer, PlayerInfoSerializer, ComposerInfoSerializer, ConductorInfoSerializer, OrchestraInfoSerializer, SemesterUserInfoSerializer, SemesterUserInfoPostSerializer
+from .models import (
+    User,
+    SemesterInfo,
+    TimeInfo,
+    MusicInfo,
+    PlayerInfo,
+    ComposerInfo,
+    ConductorInfo,
+    OrchestraInfo,
+    SemesterUserInfo,
+)
+from .serializers import (
+    TimeInfoGetSerializer,
+    UserSerializer,
+    SemesterInfoSerializer,
+    TimeInfoSerializer,
+    MusicInfoSerializer,
+    PlayerInfoSerializer,
+    ComposerInfoSerializer,
+    ConductorInfoSerializer,
+    OrchestraInfoSerializer,
+    SemesterUserInfoSerializer,
+    SemesterUserInfoPostSerializer,
+)
+
 
 class CheckTimeInfoAPIView(APIView):
     def get(self, request, year, month, day, time):
@@ -20,6 +43,7 @@ class CheckTimeInfoAPIView(APIView):
         else:
             return Response({"error": "TimeInfo not found"}, status=404)
 
+
 class CreateTimeInfoAPIView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = TimeInfoSerializer(data=request.data)
@@ -27,6 +51,7 @@ class CreateTimeInfoAPIView(APIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class TimeInfoDetailView(APIView):
     def get_object(self, pk):
@@ -39,6 +64,8 @@ class TimeInfoDetailView(APIView):
         time_info = self.get_object(pk)
         serializer = TimeInfoGetSerializer(time_info)
         return Response(serializer.data)
+
+
 """
 class CheckTimeInfoAPIView(APIView):
     def get(self, request, year, month):
@@ -66,6 +93,8 @@ class CheckTimeInfoAPIView(APIView):
         last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
         return first_day, last_day
 """
+
+
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
