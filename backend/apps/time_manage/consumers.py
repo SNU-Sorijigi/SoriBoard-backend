@@ -5,8 +5,10 @@ from ...settings.base import STREAM_SOCKET_GROUP_NAME
 from .models import TimeMusic
 from .serializers import TimeMusicSerializer
 
+
 class TvDisplayConsumer(AsyncWebsocketConsumer):
     group_name = STREAM_SOCKET_GROUP_NAME
+
     async def connect(self):
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
@@ -25,10 +27,11 @@ class TvDisplayConsumer(AsyncWebsocketConsumer):
 
             await self.send(
                 self.group_name,
-                {"type": "update_tv",
-                 "update_type": "music",
-                 "info": _tv_display_info,
-                 }
+                {
+                    "type": "update_tv",
+                    "update_type": "music",
+                    "info": _tv_display_info,
+                },
             )
 
         elif _update_type == "breaktime":
@@ -38,10 +41,11 @@ class TvDisplayConsumer(AsyncWebsocketConsumer):
 
             await self.send(
                 self.group_name,
-                {"type": "update_tv",
-                 "update_type": "breaktime",
-                 "info": _tv_display_info,
-                 }
+                {
+                    "type": "update_tv",
+                    "update_type": "breaktime",
+                    "info": _tv_display_info,
+                },
             )
 
     @sync_to_async
@@ -52,4 +56,3 @@ class TvDisplayConsumer(AsyncWebsocketConsumer):
 
     async def update_tv(self, event):
         await self.send(text_data=json.dumps(event))
-
