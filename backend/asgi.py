@@ -9,12 +9,16 @@ https://docs.djangoproject.com/en/4.2/howto/deployment/asgi/
 
 import os
 
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "settings.base")
+import django
+
+django.setup()
+
 from django.core.asgi import get_asgi_application
 from channels.auth import AuthMiddlewareStack
 from channels.routing import ProtocolTypeRouter, URLRouter
 import apps.time_manage.routing as time_manage_routing
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "settings.base")
 
 application = ProtocolTypeRouter(
     {

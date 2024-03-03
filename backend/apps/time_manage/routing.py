@@ -1,6 +1,6 @@
-from django.urls import path
+from django.urls import re_path
 from .consumers import TvDisplayConsumer
 
 websocket_urlpatterns = [
-    path("ws/tv_display/", TvDisplayConsumer.as_asgi()),
+    re_path(r"ws/tv_display/$", TvDisplayConsumer.as_asgi()),
 ]

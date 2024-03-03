@@ -73,7 +73,7 @@ TEMPLATES = [
     },
 ]
 
-ASGI_APPLICATION = "backend.asgi.application"
+ASGI_APPLICATION = "asgi.application"
 
 CHANNEL_LAYERS = {
     "default": {
@@ -83,7 +83,7 @@ CHANNEL_LAYERS = {
 
 STREAM_SOCKET_GROUP_NAME = "tv_socket_group"
 
-WSGI_APPLICATION = "backend.wsgi.application"
+WSGI_APPLICATION = "wsgi.application"
 
 
 # Database
