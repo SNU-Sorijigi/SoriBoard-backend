@@ -41,12 +41,68 @@ class SemesterUserInfoPostSerializer(serializers.ModelSerializer):
 
 
 class TimeInfoSerializer(serializers.ModelSerializer):
-    user = UserSerializer(read_only=True)
-    mentee = UserSerializer(read_only=True)
+    user_name = serializers.CharField(write_only=True, required=False)
+    mentee_name = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, allow_null=True
+    )
 
     class Meta:
         model = TimeInfo
         fields = "__all__"
+        extra_kwargs = {
+            "user": {"read_only": True},
+            "mentee": {"read_only": True},
+        }
+
+    def create(self, validated_data):
+        user_name = validated_data.pop("user_name", None)
+        mentee_name = validated_data.pop("mentee_name", None)
+
+        # Find or create the user (userr)
+        user, _ = User.objects.get_or_create(name=user_name)
+        validated_data["user"] = user
+
+        # Find or create the mentee, if a name is provided
+        if mentee_name:
+            mentee, _ = User.objects.get_or_create(name=mentee_name)
+            validated_data["mentee"] = mentee
+        else:
+            validated_data["mentee"] = None
+
+        print(validated_data)
+
+        return super().create(validated_data)
+
+    def get_user_name(self, obj):
+        return obj.user.name if obj.user else None
+
+    def get_mentee_name(self, obj):
+        return obj.mentee.name if obj.mentee else None
+
+
+class TimeInfoGetSerializer(serializers.ModelSerializer):
+    mento_name = serializers.SerializerMethodField()
+    mentee_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TimeInfo
+        fields = [
+            "id",
+            "time",
+            "date",
+            "time_comment_music",
+            "time_comment_gigi",
+            "time_comment_etc",
+            "mento_name",
+            "mentee_name",
+        ]
+        # Exclude the 'user' and 'mentee' fields if you don't want their IDs to be part of the response
+
+    def get_mento_name(self, obj):
+        return obj.user.name if obj.user else None
+
+    def get_mentee_name(self, obj):
+        return obj.mentee.name if obj.mentee else None
 
 
 class TimeInfoPostSerializer(serializers.ModelSerializer):
