@@ -59,7 +59,9 @@ class TimeMusicListSerializer(serializers.ModelSerializer):
         ]
 
     def get_player_names(self, obj):
-        return [(player.instrument + ": " + player.name) for player in obj.players.all()]
+        return [
+            (player.instrument + ": " + player.name) for player in obj.players.all()
+        ]
 
 
 class TimeInfoDetailSerializer(serializers.ModelSerializer):
@@ -76,11 +78,19 @@ class TimeInfoDetailSerializer(serializers.ModelSerializer):
 
 class TimeMusicSerializer(serializers.ModelSerializer):
     title = serializers.CharField(write_only=True)
-    semi_title = serializers.CharField(write_only=True, allow_blank=True, required=False)
+    semi_title = serializers.CharField(
+        write_only=True, allow_blank=True, required=False
+    )
     composer_name = serializers.CharField(write_only=True)
-    conductor_name = serializers.CharField(write_only=True, allow_blank=True, required=False)
-    orchestra_name = serializers.CharField(write_only=True, allow_blank=True, required=False)
-    player_names = serializers.ListField(child=serializers.CharField(), write_only=True, allow_empty=True)
+    conductor_name = serializers.CharField(
+        write_only=True, allow_blank=True, required=False
+    )
+    orchestra_name = serializers.CharField(
+        write_only=True, allow_blank=True, required=False
+    )
+    player_names = serializers.ListField(
+        child=serializers.CharField(), write_only=True, allow_empty=True
+    )
 
     class Meta:
         model = TimeMusic
@@ -95,28 +105,48 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         }
 
     def create(self, validated_data):
-        composer_name = validated_data.pop('composer_name', '')
+        composer_name = validated_data.pop("composer_name", "")
         composer, _ = Composer.objects.get_or_create(name=composer_name)
 
-        conductor_name = validated_data.pop('conductor_name', '')
-        conductor, _ = Conductor.objects.get_or_create(name=conductor_name) if conductor_name else (None, False)
+        conductor_name = validated_data.pop("conductor_name", "")
+        conductor, _ = (
+            Conductor.objects.get_or_create(name=conductor_name)
+            if conductor_name
+            else (None, False)
+        )
 
-        orchestra_name = validated_data.pop('orchestra_name', '')
-        orchestra, _ = Orchestra.objects.get_or_create(name=orchestra_name) if orchestra_name else (None, False)
+        orchestra_name = validated_data.pop("orchestra_name", "")
+        orchestra, _ = (
+            Orchestra.objects.get_or_create(name=orchestra_name)
+            if orchestra_name
+            else (None, False)
+        )
 
-        title = validated_data.pop('title')
-        semi_title = validated_data.pop('semi_title', None)
+        title = validated_data.pop("title")
+        semi_title = validated_data.pop("semi_title", None)
         music, _ = Music.objects.get_or_create(title=title, composer=composer)
-        music_detail, _ = MusicDetail.objects.get_or_create(music=music, semi_title=semi_title) if semi_title else (None, False)
+        music_detail, _ = (
+            MusicDetail.objects.get_or_create(music=music, semi_title=semi_title)
+            if semi_title
+            else (None, False)
+        )
 
-        player_names = validated_data.pop('player_names', [])
+        player_names = validated_data.pop("player_names", [])
 
-        time_music = TimeMusic.objects.create(**validated_data, music=music, music_detail=music_detail, conductor=conductor, orchestra=orchestra)
+        time_music = TimeMusic.objects.create(
+            **validated_data,
+            music=music,
+            music_detail=music_detail,
+            conductor=conductor,
+            orchestra=orchestra
+        )
 
         for player_name in player_names:
             if player_name:
-                name, instrument = player_name.split(': ')
-                player, _ = Player.objects.get_or_create(instrument=instrument.strip(), name=name.strip())
+                name, instrument = player_name.split(": ")
+                player, _ = Player.objects.get_or_create(
+                    instrument=instrument.strip(), name=name.strip()
+                )
                 time_music.players.add(player)
 
         return time_music
@@ -146,7 +176,9 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         music, _ = Music.objects.get_or_create(title=title, composer=composer)
 
         if semi_title:
-            music_detail, _ = MusicDetail.objects.get_or_create(music=music, semi_title=semi_title)
+            music_detail, _ = MusicDetail.objects.get_or_create(
+                music=music, semi_title=semi_title
+            )
             instance.music_detail = music_detail
         else:
             instance.music_detail = None
@@ -159,7 +191,9 @@ class TimeMusicSerializer(serializers.ModelSerializer):
             instance.players.clear()
             for player_name in player_names:
                 instrument, name = player_name.split(": ")
-                player, _ = Player.objects.get_or_create(instrument=instrument.strip(), name=name.strip())
+                player, _ = Player.objects.get_or_create(
+                    instrument=instrument.strip(), name=name.strip()
+                )
                 instance.players.add(player)
         else:
             instance.players.clear()
