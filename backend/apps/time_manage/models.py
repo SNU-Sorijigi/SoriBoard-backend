@@ -13,17 +13,20 @@ class User(models.Model):
 
 
 # 학기 운영 정보
-class SemesterInfo(models.Model):
+class Semester(models.Model):
     year = models.IntegerField()  # 연도
-    semester = models.IntegerField()  # 학기
+    semester_num = models.IntegerField()  # 학기
     total_time = models.IntegerField(default=4)  # 하루 타임 수 (기본 4)
     start_time = models.TimeField()  # 타임 시작 시간 (예: 9시 30분)
     end_time = models.TimeField()  # 타임 종료 시간 (예: 17시 40분)
     rest_time = models.IntegerField(default=10)  # 쉬는 시간 (기본 10분)
 
+    class Meta:
+        db_table = "semester"
+
 
 # 학기 - 지기 연결
-class SemesterUserInfo(models.Model):
+class SemesterUser(models.Model):
     user = models.ForeignKey(
         "User", on_delete=models.CASCADE, related_name="usersemesterinfo"
     )  # 지기
@@ -34,23 +37,20 @@ class SemesterUserInfo(models.Model):
         null=True,
         blank=True,
     )  # 견습 지기
-    semester_info = models.ForeignKey(
-        "SemesterInfo", on_delete=models.CASCADE, related_name="userinfo"
+    semester = models.ForeignKey(
+        "Semester", on_delete=models.CASCADE, related_name="userinfo"
     )  # 학기
-    day = models.IntegerField()  # 요일
+    day = models.IntegerField()  # 요일 (Monday = 0)
     time = models.IntegerField()  # 타임
 
     class Meta:
-        db_table = "semester_user_info"
+        db_table = "semester_user"
 
 
 # 타임 정보
 class TimeInfo(models.Model):
     time = models.IntegerField()  # 타임
     date = models.DateField()  # 날짜
-    SemesterInfo = models.ForeignKey(
-        "SemesterInfo", on_delete=models.CASCADE, related_name="timeinfo"
-    )  # 학기
     user = models.ForeignKey(
         "User", on_delete=models.CASCADE, related_name="time"
     )  # 지기
@@ -66,108 +66,90 @@ class TimeInfo(models.Model):
     time_comment_music = models.TextField(
         default="", blank=True, null=True
     )  # 음악 관련 코멘트
-    time_comment_gigi = models.TextField(
-        default="", blank=True, null=True
-    )  # 기기 관련 코멘트
-    time_comment_etc = models.TextField(
-        default="", blank=True, null=True
-    )  # 기타 코멘트
+    time_comment_gigi = models.TextField(default="", blank=True, null=True)  # 기기 관련 코멘트
+    time_comment_etc = models.TextField(default="", blank=True, null=True)  # 기타 코멘트
 
     class Meta:
-        db_table = "time_info"
+        db_table = "time"
 
 
 # 선곡 정보
-class TimeMusicInfo(models.Model):
-    time_info = models.ForeignKey("TimeInfo", on_delete=models.CASCADE)  # 타임 id
+class TimeMusic(models.Model):
+    time = models.ForeignKey(
+        "TimeInfo", on_delete=models.CASCADE, related_name="timeplaylist"
+    )  # 타임 id
     order = models.IntegerField()  # 순서
     is_requested = models.BooleanField(default=False)  # 신청곡
     source = models.CharField(max_length=20)  # 소스
     cd_id = models.CharField(max_length=20, blank=True, null=True)  # 음반
     music = models.ForeignKey(
-        "MusicInfo", on_delete=models.CASCADE, blank=True, null=True
+        "Music", on_delete=models.CASCADE, blank=True, null=True
     )  # 곡
-    semi_title = models.ForeignKey(
-        "SemiTitleInfo", on_delete=models.CASCADE, blank=True, null=True
+    music_detail = models.ForeignKey(
+        "MusicDetail", on_delete=models.CASCADE, blank=True, null=True
     )  # 세부 제목
     conductor = models.ForeignKey(
-        "ConductorInfo", on_delete=models.CASCADE, blank=True, null=True
+        "Conductor", on_delete=models.CASCADE, blank=True, null=True
     )  # 지휘자
     orchestra = models.ForeignKey(
-        "OrchestraInfo", on_delete=models.CASCADE, blank=True, null=True
+        "Orchestra", on_delete=models.CASCADE, blank=True, null=True
     )  # 오케스트라
-    players = models.ManyToManyField("PlayerInfo")  # 연주자
+    players = models.ManyToManyField("Player")  # 연주자
 
     class Meta:
-        db_table = "time_music_info"
+        db_table = "time_music"
 
 
 # 곡 정보
-class MusicInfo(models.Model):
-    time_info = models.ForeignKey("TimeInfo", on_delete=models.CASCADE)
-    is_requested = models.BooleanField(default=False)
-    source = models.CharField(max_length=20)
-    cd_id = models.CharField(max_length=20, blank=True, null=True)
+class Music(models.Model):
     title = models.CharField(max_length=200)
-    semi_title = models.CharField(max_length=200, blank=True, null=True)
     composer = models.ForeignKey(
-        "ComposerInfo",
+        "Composer",
         related_name="musics",
         on_delete=models.CASCADE,
-        blank=True,
-        null=True,
     )
-    conductor = models.ForeignKey(
-        "ConductorInfo", on_delete=models.CASCADE, blank=True, null=True
-    )
-    orchestra = models.ForeignKey(
-        "OrchestraInfo", on_delete=models.CASCADE, blank=True, null=True
-    )
-    players = models.ManyToManyField("PlayerInfo")
 
     class Meta:
-        db_table = "music_info"
+        db_table = "music"
 
 
 # 세부 제목 정보
-class SemiTitleInfo(models.Model):
-    music = models.ForeignKey(
-        "MusicInfo", related_name="semi_titles", on_delete=models.CASCADE
-    )
+class MusicDetail(models.Model):
+    music = models.ForeignKey("Music", related_name="details", on_delete=models.CASCADE)
     semi_title = models.CharField(max_length=200)
 
     class Meta:
-        db_table = "semi_title_info"
+        db_table = "music_detail"
 
 
 # 작곡가 정보
-class ComposerInfo(models.Model):
+class Composer(models.Model):
     name = models.CharField(max_length=50)
 
     class Meta:
-        db_table = "composer_info"
+        db_table = "composer"
 
 
 # 지휘자 정보
-class ConductorInfo(models.Model):
+class Conductor(models.Model):
     name = models.CharField(max_length=50)
 
     class Meta:
-        db_table = "conducter_info"
+        db_table = "conducter"
 
 
 # 오케스트라 정보
-class OrchestraInfo(models.Model):
+class Orchestra(models.Model):
     name = models.CharField(max_length=50)
 
     class Meta:
-        db_table = "orchestra_info"
+        db_table = "orchestra"
 
 
 # 연주자 정보
-class PlayerInfo(models.Model):
+class Player(models.Model):
     name = models.CharField(max_length=50)
     instrument = models.CharField(max_length=50)
 
     class Meta:
-        db_table = "player_info"
+        db_table = "player"

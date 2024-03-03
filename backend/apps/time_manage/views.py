@@ -1,71 +1,58 @@
 from rest_framework import viewsets, status
-from rest_framework.views import APIView
-import datetime
 from rest_framework.response import Response
-from rest_framework.decorators import action
-from .models import (
-    User,
-    SemesterInfo,
-    TimeInfo,
-    MusicInfo,
-    PlayerInfo,
-    ComposerInfo,
-    ConductorInfo,
-    OrchestraInfo,
-    SemesterUserInfo,
-)
-from .serializers import (
-    TimeInfoGetSerializer,
-    UserSerializer,
-    SemesterInfoSerializer,
-    TimeInfoSerializer,
-    MusicInfoSerializer,
-    PlayerInfoSerializer,
-    ComposerInfoSerializer,
-    ConductorInfoSerializer,
-    OrchestraInfoSerializer,
-    SemesterUserInfoSerializer,
-    SemesterUserInfoPostSerializer,
-)
+from django.shortcuts import get_object_or_404
+from .models import *
+from .serializers import *
 
 
-class CheckTimeInfoAPIView(APIView):
-    def get(self, request, year, month, day, time):
-        date_str = f"{year}-{month}-{day}"
-        try:
-            date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
-        except ValueError:
-            return Response({"error": "Invalid date format"}, status=400)
+class TimeInfoViewSet(viewsets.ViewSet):
+    def list(self, request):
+        date = request.query_params.get("date")
+        time = request.query_params.get("time")
+        if date and time:
+            queryset = TimeInfo.objects.filter(date=date, time=time).first()
+            return Response({"id": queryset.id if queryset else None})
+        return Response(status=status.HTTP_400_BAD_REQUEST)
 
-        time_info = TimeInfo.objects.filter(date=date_obj, time=time).first()
-        if time_info:
-            return Response({"id": time_info.id})
-        else:
-            return Response({"error": "TimeInfo not found"}, status=404)
+    def retrieve(self, request, pk=None):
+        queryset = TimeInfo.objects.all()
+        timeinfo = get_object_or_404(queryset, pk=pk)
+        serializer = TimeInfoDetailSerializer(timeinfo)
+        return Response(serializer.data)
 
-
-class CreateTimeInfoAPIView(APIView):
-    def post(self, request, *args, **kwargs):
+    def create(self, request):
         serializer = TimeInfoSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            instance = serializer.save()
+            return Response({"id": instance.id}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class TimeInfoDetailView(APIView):
-    def get_object(self, pk):
-        try:
-            return TimeInfo.objects.get(pk=pk)
-        except TimeInfo.DoesNotExist:
-            return Response({"error": "TimeInfo not found"}, status=404)
+class TimeMusicViewSet(viewsets.ViewSet):
+    def create(self, request):
+        serializer = TimeMusicSerializer(data=request.data)
+        if serializer.is_valid():
+            time_music = serializer.save()
+            return Response(
+                TimeMusicSerializer(time_music).data, status=status.HTTP_201_CREATED
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def get(self, request, pk, format=None):
-        time_info = self.get_object(pk)
-        serializer = TimeInfoGetSerializer(time_info)
-        return Response(serializer.data)
+    def update(self, request, pk=None):
+        time_music = TimeMusic.objects.get(pk=pk)
+        serializer = TimeMusicSerializer(time_music, data=request.data, partial=True)
+        if serializer.is_valid():
+            time_music = serializer.save()
+            return Response(TimeMusicSerializer(time_music).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def destroy(self, request, pk=None):
+        time_music = TimeMusic.objects.get(pk=pk)
+        time_music.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+# 프론트 구조 바꿔야 해서 나중에 변경
 """
 class CheckTimeInfoAPIView(APIView):
     def get(self, request, year, month):
@@ -93,81 +80,3 @@ class CheckTimeInfoAPIView(APIView):
         last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
         return first_day, last_day
 """
-
-
-class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
-
-
-class SemesterInfoViewSet(viewsets.ViewSet):
-
-    def list(self, request):
-        year = request.query_params.get("year")
-        semester = request.query_params.get("semester")
-        if year is not None and semester is not None:
-            semester_info = SemesterInfo.objects.filter(
-                year=year, semester=semester
-            ).first()
-            if semester_info:
-                serializer = SemesterInfoSerializer(semester_info)
-                return Response(serializer.data)
-        return Response([])
-
-
-class SemesterInfoPostViewSet(viewsets.ModelViewSet):
-    queryset = SemesterInfo.objects.all()
-    serializer_class = SemesterInfoSerializer
-
-
-class SemesterUserInfoViewSet(viewsets.ViewSet):
-
-    def list(self, request):
-        year = request.query_params.get("year")
-        semester = request.query_params.get("semester")
-        if year is not None and semester is not None:
-            semester_info = SemesterInfo.objects.filter(
-                year=year, semester=semester
-            ).first()
-            if semester_info:
-                user_semester_infos = SemesterUserInfo.objects.filter(
-                    semester_info=semester_info
-                )
-                serializer = SemesterUserInfoSerializer(user_semester_infos, many=True)
-                return Response(serializer.data)
-        return Response([])
-
-
-class SemesterUserInfoPostViewSet(viewsets.ModelViewSet):
-    queryset = SemesterUserInfo.objects.all()
-    serializer_class = SemesterUserInfoPostSerializer
-
-
-class TimeInfoViewSet(viewsets.ModelViewSet):
-    queryset = TimeInfo.objects.all()
-    serializer_class = TimeInfoSerializer
-
-
-class MusicInfoViewSet(viewsets.ModelViewSet):
-    queryset = MusicInfo.objects.all()
-    serializer_class = MusicInfoSerializer
-
-
-class PlayerInfoViewSet(viewsets.ModelViewSet):
-    queryset = PlayerInfo.objects.all()
-    serializer_class = PlayerInfoSerializer
-
-
-class ComposerInfoViewSet(viewsets.ModelViewSet):
-    queryset = ComposerInfo.objects.all()
-    serializer_class = ComposerInfoSerializer
-
-
-class ConductorInfoViewSet(viewsets.ModelViewSet):
-    queryset = ConductorInfo.objects.all()
-    serializer_class = ConductorInfoSerializer
-
-
-class OrchestraInfoViewSet(viewsets.ModelViewSet):
-    queryset = OrchestraInfo.objects.all()
-    serializer_class = OrchestraInfoSerializer
