@@ -89,7 +89,9 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         write_only=True, allow_blank=True, required=False
     )
     player_names = serializers.ListField(
-        child=serializers.CharField(), write_only=True, allow_empty=True
+        child=serializers.CharField(write_only=True, allow_blank=True, required=False),
+        write_only=True,
+        allow_empty=True,
     )
 
     class Meta:
@@ -143,7 +145,7 @@ class TimeMusicSerializer(serializers.ModelSerializer):
 
         for player_name in player_names:
             if player_name:
-                name, instrument = player_name.split(": ")
+                instrument, name = player_name.split(": ")
                 player, _ = Player.objects.get_or_create(
                     instrument=instrument.strip(), name=name.strip()
                 )
@@ -162,6 +164,7 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         composer, _ = Composer.objects.get_or_create(name=composer_name)
 
         if conductor_name:
+            _, conductor_name = conductor_name.split(": ")
             conductor, _ = Conductor.objects.get_or_create(name=conductor_name)
             instance.conductor = conductor
         else:
