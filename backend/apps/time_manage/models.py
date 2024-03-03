@@ -66,8 +66,12 @@ class TimeInfo(models.Model):
     time_comment_music = models.TextField(
         default="", blank=True, null=True
     )  # 음악 관련 코멘트
-    time_comment_gigi = models.TextField(default="", blank=True, null=True)  # 기기 관련 코멘트
-    time_comment_etc = models.TextField(default="", blank=True, null=True)  # 기타 코멘트
+    time_comment_gigi = models.TextField(
+        default="", blank=True, null=True
+    )  # 기기 관련 코멘트
+    time_comment_etc = models.TextField(
+        default="", blank=True, null=True
+    )  # 기타 코멘트
 
     class Meta:
         db_table = "time"
