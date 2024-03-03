@@ -36,6 +36,7 @@ class TimeMusicViewSet(viewsets.ViewSet):
             return Response(
                 TimeMusicSerializer(time_music).data, status=status.HTTP_201_CREATED
             )
+        print(serializer.errors)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def update(self, request, pk=None):
