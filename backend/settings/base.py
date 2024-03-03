@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "channels",
     # Custom apps
     "apps.time_manage",
 ]
@@ -72,7 +73,17 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "wsgi.application"
+ASGI_APPLICATION = "backend.asgi.application"
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    },
+}
+
+STREAM_SOCKET_GROUP_NAME = "tv_socket_group"
+
+WSGI_APPLICATION = "backend.wsgi.application"
 
 
 # Database
