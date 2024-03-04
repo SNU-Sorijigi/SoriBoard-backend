@@ -14,10 +14,26 @@ class UserNameSerializer(serializers.ModelSerializer):
         fields = ["name"]
 
 
+class CreatingSlugRelatedField(serializers.SlugRelatedField):
+    def to_internal_value(self, data):
+        try:
+            user, created = User.objects.get_or_create(name=data)
+            return user
+        except (TypeError, ValueError):
+            self.fail("invalid")
+        except User.DoesNotExist:
+            self.fail("does_not_exist", slug_name=self.slug_field, value=data)
+        except User.MultipleObjectsReturned:
+            self.fail("multiple_objects", slug_name=self.slug_field, value=data)
+
+
 class TimeInfoSerializer(serializers.ModelSerializer):
-    user = serializers.SlugRelatedField(slug_field="name", queryset=User.objects.all())
-    mentee = serializers.SlugRelatedField(
-        slug_field="name", queryset=User.objects.all(), required=False, allow_null=True
+    user = CreatingSlugRelatedField(slug_field="username", queryset=User.objects.all())
+    mentee = CreatingSlugRelatedField(
+        slug_field="username",
+        queryset=User.objects.all(),
+        required=False,
+        allow_null=True,
     )
 
     class Meta:
