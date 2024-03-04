@@ -1,13 +1,13 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
-from ...settings.base import STREAM_SOCKET_GROUP_NAME
+
 from .models import TimeMusic
-from .serializers import TimeMusicSerializer
+from .serializers import TimeMusicListSerializer
 
 
 class TvDisplayConsumer(AsyncWebsocketConsumer):
-    group_name = STREAM_SOCKET_GROUP_NAME
+    group_name = "tv_socket_group"
 
     async def connect(self):
         await self.channel_layer.group_add(self.group_name, self.channel_name)
@@ -23,9 +23,9 @@ class TvDisplayConsumer(AsyncWebsocketConsumer):
         if _update_type == "music":
             _time_music_id = _text_data_json["time_music_id"]
 
-            _tv_display_info = self.get_serialized_time_music(_time_music_id)
+            _tv_display_info = await self.get_serialized_time_music(_time_music_id)
 
-            await self.send(
+            await self.channel_layer.group_send(
                 self.group_name,
                 {
                     "type": "update_tv",
@@ -39,7 +39,7 @@ class TvDisplayConsumer(AsyncWebsocketConsumer):
 
             _tv_display_info = str(_breaktime)
 
-            await self.send(
+            await self.channel_layer.group_send(
                 self.group_name,
                 {
                     "type": "update_tv",
@@ -51,7 +51,7 @@ class TvDisplayConsumer(AsyncWebsocketConsumer):
     @sync_to_async
     def get_serialized_time_music(self, time_music_id):
         time_music = TimeMusic.objects.get(pk=time_music_id)
-        serialized_time_music = TimeMusicSerializer(time_music).data
+        serialized_time_music = TimeMusicListSerializer(time_music).data
         return serialized_time_music
 
     async def update_tv(self, event):

@@ -186,6 +186,8 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         else:
             instance.music_detail = None
 
+        instance.music = music
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
