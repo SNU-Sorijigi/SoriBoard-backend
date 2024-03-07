@@ -27,6 +27,19 @@ class TimeInfoViewSet(viewsets.ViewSet):
             return Response({"id": instance.id}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    def update(self, request, pk=None):
+        time_info = TimeInfo.objects.get(pk=pk)
+        serializer = TimeInfoSerializer(time_info, data=request.data, partial=True)
+        if serializer.is_valid():
+            time_info = serializer.save()
+            return Response(TimeInfoSerializer(time_info).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def destroy(self, request, pk=None):
+        time_info = TimeInfo.objects.get(pk=pk)
+        time_info.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class TimeMusicViewSet(viewsets.ViewSet):
     def create(self, request):
