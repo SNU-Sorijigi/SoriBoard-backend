@@ -8,4 +8,5 @@ router.register(r"timemusic", TimeMusicViewSet, basename="timemusic")
 
 urlpatterns = [
     path("", include(router.urls)),
+    path("checktime/", CheckTimeInfoAPIView.as_view(), name="checktime"),
 ]
