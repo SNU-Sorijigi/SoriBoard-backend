@@ -70,8 +70,11 @@ class TimeMusicViewSet(viewsets.ViewSet):
 
 # 프론트 구조 바꿔야 해서 나중에 변경
 
+
 class CheckTimeInfoAPIView(APIView):
-    def get(self, request, start_year, start_month, start_day, end_year, end_month, end_day):
+    def get(
+        self, request, start_year, start_month, start_day, end_year, end_month, end_day
+    ):
         start_date_str = f"{start_year}-{start_month}-{start_day}"
         end_date_str = f"{end_year}-{end_month}-{end_day}"
         try:
@@ -84,10 +87,15 @@ class CheckTimeInfoAPIView(APIView):
             return Response({"error": "Start date must be before end date"}, status=400)
 
         times_status = []
-        for single_date in (start_date + datetime.timedelta(days=n) for n in range((end_date - start_date).days + 1)):
+        for single_date in (
+            start_date + datetime.timedelta(days=n)
+            for n in range((end_date - start_date).days + 1)
+        ):
             day_status = []
             for time in range(1, 6):
-                time_exists = TimeInfo.objects.filter(date=single_date, time=time).exists()
+                time_exists = TimeInfo.objects.filter(
+                    date=single_date, time=time
+                ).exists()
                 day_status.append(time_exists)
             times_status.extend(day_status)
 
