@@ -68,9 +68,6 @@ class TimeMusicViewSet(viewsets.ViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-# 프론트 구조 바꿔야 해서 나중에 변경
-
-
 class CheckTimeInfoAPIView(APIView):
     def get(
         self, request, start_year, start_month, start_day, end_year, end_month, end_day
@@ -93,10 +90,26 @@ class CheckTimeInfoAPIView(APIView):
         ):
             day_status = []
             for time in range(1, 6):
-                time_exists = TimeInfo.objects.filter(
-                    date=single_date, time=time
-                ).exists()
-                day_status.append(time_exists)
-            times_status.extend(day_status)
+                try:
+                    time_info = TimeInfo.objects.filter(date=single_date, time=time).first()
+                    if time_info:
+                        day_status.append(time_info.id)
+                    else:
+                        day_status.append(None)
+                except TimeInfo.DoesNotExist:
+                    day_status.append(None)
+            times_status.append(day_status)
 
         return Response(times_status)
+
+class SwapOrderView(APIView):
+    def post(self, request, upper_id, lower_id, *args, **kwargs):
+        try:
+            time_music_upper = TimeMusic.objects.get(id=upper_id)
+            time_music_lower = TimeMusic.objects.get(id=lower_id)
+        except TimeMusic.DoesNotExist:
+            return Response({'error': 'One or both of the specified TimeMusic instances do not exist.'}, status=status.HTTP_404_NOT_FOUND)
+        time_music_upper.order, time_music_lower.order = time_music_lower.order, time_music_upper.order
+        time_music_upper.save()
+        time_music_lower.save()
+        return Response({'message': 'Order swapped successfully.'})

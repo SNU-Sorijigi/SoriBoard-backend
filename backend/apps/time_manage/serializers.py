@@ -28,9 +28,9 @@ class CreatingSlugRelatedField(serializers.SlugRelatedField):
 
 
 class TimeInfoSerializer(serializers.ModelSerializer):
-    user = CreatingSlugRelatedField(slug_field="username", queryset=User.objects.all())
+    user = CreatingSlugRelatedField(slug_field="name", queryset=User.objects.all())
     mentee = CreatingSlugRelatedField(
-        slug_field="username",
+        slug_field="name",
         queryset=User.objects.all(),
         required=False,
         allow_null=True,
@@ -83,13 +83,15 @@ class TimeMusicListSerializer(serializers.ModelSerializer):
 class TimeInfoDetailSerializer(serializers.ModelSerializer):
     user = UserNameSerializer(read_only=True)
     mentee = UserNameSerializer(read_only=True)
-    time_music = TimeMusicListSerializer(
-        source="timeplaylist", many=True, read_only=True
-    )
+    time_music = serializers.SerializerMethodField()
 
     class Meta:
         model = TimeInfo
         fields = "__all__"
+
+    def get_time_music(self, obj):
+        queryset = obj.timeplaylist.all().order_by('order')
+        return TimeMusicListSerializer(queryset, many=True, read_only=True).data
 
 
 class TimeMusicSerializer(serializers.ModelSerializer):
