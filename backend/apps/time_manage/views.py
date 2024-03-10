@@ -1,5 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
+from rest_framework.views import APIView
+import datetime
 from django.shortcuts import get_object_or_404
 from .models import *
 from .serializers import *
@@ -67,30 +69,34 @@ class TimeMusicViewSet(viewsets.ViewSet):
 
 
 # 프론트 구조 바꿔야 해서 나중에 변경
-"""
+
+
 class CheckTimeInfoAPIView(APIView):
-    def get(self, request, year, month):
+    def get(
+        self, request, start_year, start_month, start_day, end_year, end_month, end_day
+    ):
+        start_date_str = f"{start_year}-{start_month}-{start_day}"
+        end_date_str = f"{end_year}-{end_month}-{end_day}"
         try:
-            start_date, end_date = self.get_month_date_range(year, month)
-        except ValueError as e:
-            return Response({"error": str(e)}, status=400)
-        
-        month_status = []
-        for day in (start_date + datetime.timedelta(days=n) for n in range((end_date - start_date).days + 1)):
+            start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+            end_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return Response({"error": "Invalid date format"}, status=400)
+
+        if start_date > end_date:
+            return Response({"error": "Start date must be before end date"}, status=400)
+
+        times_status = []
+        for single_date in (
+            start_date + datetime.timedelta(days=n)
+            for n in range((end_date - start_date).days + 1)
+        ):
             day_status = []
             for time in range(1, 6):
-                time_exists = TimeInfo.objects.filter(date=day, time=time).exists()
+                time_exists = TimeInfo.objects.filter(
+                    date=single_date, time=time
+                ).exists()
                 day_status.append(time_exists)
-            month_status.extend(day_status)
-        
-        return Response(month_status)
+            times_status.extend(day_status)
 
-    def get_month_date_range(self, year, month):
-        year, month = int(year), int(month)
-
-        if month < 1 or month > 12:
-            raise ValueError("Month must be betwen 1 and 12")
-        first_day = datetime.date(year, month, 1)
-        last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
-        return first_day, last_day
-"""
+        return Response(times_status)
