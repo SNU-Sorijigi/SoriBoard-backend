@@ -90,7 +90,7 @@ class TimeInfoDetailSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
     def get_time_music(self, obj):
-        queryset = obj.timeplaylist.all().order_by('order')
+        queryset = obj.timeplaylist.all().order_by("order")
         return TimeMusicListSerializer(queryset, many=True, read_only=True).data
 
 
