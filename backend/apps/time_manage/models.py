@@ -75,6 +75,7 @@ class TimeInfo(models.Model):
 
     class Meta:
         db_table = "time"
+        unique_together = ("time", "date")
 
 
 # 선곡 정보
