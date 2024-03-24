@@ -8,6 +8,29 @@ class UserSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class ComposerSerializer(serializers.ModelSerializer):
+    num_time_music = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Composer
+        fields = ["id", "name", "num_time_music"]
+
+
+class ComposerNameSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Composer
+        fields = ["name"]
+
+
+class MusicSerializer(serializers.ModelSerializer):
+    num_time_music = serializers.IntegerField(read_only=True)
+    composer = ComposerNameSerializer()
+
+    class Meta:
+        model = Music
+        fields = ["id", "title", "composer", "num_time_music"]
+
+
 class UserNameSerializer(serializers.ModelSerializer):
     class Meta:
         model = User

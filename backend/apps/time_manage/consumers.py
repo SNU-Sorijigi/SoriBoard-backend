@@ -48,6 +48,34 @@ class TvDisplayConsumer(AsyncWebsocketConsumer):
                 },
             )
 
+        elif _update_type == "size":
+            _composer_font_size = _text_data_json["composerFontSize"]
+            _title_font_size = _text_data_json["titleFontSize"]
+            _orchestra_font_size = _text_data_json["orchestraFontSize"]
+            _player_font_size = _text_data_json["playerFontSize"]
+            _spacer_size1 = _text_data_json["spacerSize1"]
+            _spacer_size2 = _text_data_json["spacerSize2"]
+            _spacer_size3 = _text_data_json["spacerSize3"]
+            _spacer_size4 = _text_data_json["spacerSize4"]
+
+            await self.channel_layer.group_send(
+                self.group_name,
+                {
+                    "type": "update_tv",
+                    "update_type": "font_size",
+                    "info": {
+                        "composerFontSize": _composer_font_size,
+                        "titleFontSize": _title_font_size,
+                        "orchestraFontSize": _orchestra_font_size,
+                        "playerFontSize": _player_font_size,
+                        "spacerSize1": _spacer_size1,
+                        "spacerSize2": _spacer_size2,
+                        "spacerSize3": _spacer_size3,
+                        "spacerSize4": _spacer_size4,
+                    },
+                },
+            )
+
     @sync_to_async
     def get_serialized_time_music(self, time_music_id):
         time_music = TimeMusic.objects.get(pk=time_music_id)
