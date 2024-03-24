@@ -5,6 +5,13 @@ from .views import *
 router = DefaultRouter()
 router.register(r"timeinfo", TimeInfoViewSet, basename="timeinfo")
 router.register(r"timemusic", TimeMusicViewSet, basename="timemusic")
+router.register(r"composers", ComposerViewSet, basename="composerlist")
+router.register(r"musics", MusicViewSet, basename="musiclist")
+router.register(
+    r"musics/by-composer/(?P<composer_id>\d+)",
+    MusicByComposerViewSet,
+    basename="music-by-composer",
+)
 
 urlpatterns = [
     path("", include(router.urls)),

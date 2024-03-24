@@ -5,6 +5,7 @@ import datetime
 from django.shortcuts import get_object_or_404
 from .models import *
 from .serializers import *
+from django.db.models import Count
 
 
 class TimeInfoViewSet(viewsets.ViewSet):
@@ -124,3 +125,33 @@ class SwapOrderView(APIView):
         time_music_upper.save()
         time_music_lower.save()
         return Response({"message": "Order swapped successfully."})
+
+
+class ComposerViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = ComposerSerializer
+
+    def get_queryset(self):
+        return Composer.objects.annotate(
+            num_time_music=Count("musics__timemusic")
+        ).order_by("-num_time_music")
+
+
+class MusicViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = MusicSerializer
+
+    def get_queryset(self):
+        return Music.objects.annotate(num_time_music=Count("timemusic")).order_by(
+            "-num_time_music"
+        )
+
+
+class MusicByComposerViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = MusicSerializer
+
+    def get_queryset(self):
+        composer_id = self.kwargs["composer_id"]
+        return (
+            Music.objects.filter(composer__id=composer_id)
+            .annotate(num_time_music=Count("timemusic"))
+            .order_by("-num_time_music")
+        )
