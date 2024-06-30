@@ -7,6 +7,21 @@ from .models import *
 from .serializers import *
 from django.db.models import Count
 
+class UserViewSet(viewsets.ModelViewSet):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+
+class SemesterViewSet(viewsets.ModelViewSet):
+    queryset = Semester.objects.all()
+    serializer_class = SemesterSerializer
+
+class TimetableViewSet(viewsets.ModelViewSet):
+    queryset = Timetable.objects.all()
+    serializer_class = TimetableSerializer
+
+class TimetableUnitViewSet(viewsets.ModelViewSet):
+    queryset = TimetableUnit.objects.all()
+    serializer_class = TimetableUnitSerializer
 
 class TimeInfoViewSet(viewsets.ViewSet):
     def list(self, request):
@@ -104,6 +119,33 @@ class CheckTimeInfoAPIView(APIView):
             times_status.append(day_status)
 
         return Response(times_status)
+
+
+class TimetableAPIView(APIView):
+    def get(self, request, semester_id):
+        try:
+            semester = Semester.objects.get(id=semester_id)
+        except Semester.DoesNotExist:
+            return Response(
+                {"error": "The specified semester does not exist."}, status=404
+            )
+
+        semester_users = SemesterUser.objects.filter(semester=semester)
+        timetable = [["" for _ in range(semester.total_time)] for _ in range(7)]
+
+        for su in semester_users:
+            day = su.day
+            time = su.time
+            jigi_name = su.user.name
+            mentee_name = ""
+            if su.mentee:
+                mentee_name = su.mentee.name
+            if mentee_name != "":
+                timetable[day][time] = f"{jigi_name}, {mentee_name}"
+            else:
+                timetable[day][time] = jigi_name
+
+        return Response(timetable, status=status.HTTP_200_OK)
 
 
 class SwapOrderView(APIView):

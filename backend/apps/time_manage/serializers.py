@@ -50,6 +50,43 @@ class CreatingSlugRelatedField(serializers.SlugRelatedField):
             self.fail("multiple_objects", slug_name=self.slug_field, value=data)
 
 
+class SemesterSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Semester
+        fields = "__all__"
+
+
+class TimetableSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Timetable
+        fields = "__all__"
+
+class TimetableUnitSerializer(serializers.ModelSerializer):
+    user = CreatingSlugRelatedField(slug_field="name", queryset=User.objects.all())
+    mentee = CreatingSlugRelatedField(
+        slug_field="name",
+        queryset=User.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = TimetableUnit
+        fields = [
+            "timetable",
+            "day",
+            "time",
+            "user",
+            "mentee",
+        ]
+
+
+class SemesterUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SemesterUser
+        fields = "__all__"
+
+
 class TimeInfoSerializer(serializers.ModelSerializer):
     user = CreatingSlugRelatedField(slug_field="name", queryset=User.objects.all())
     mentee = CreatingSlugRelatedField(

@@ -3,6 +3,10 @@ from rest_framework.routers import DefaultRouter
 from .views import *
 
 router = DefaultRouter()
+router.register(r"users", UserViewSet, basename="user")
+router.register(r"semesters", SemesterViewSet, basename="semester")
+router.register(r"timetables", TimetableViewSet, basename="timetable")
+router.register(r"timetableunits", TimetableUnitViewSet, basename="timetableunit")
 router.register(r"timeinfo", TimeInfoViewSet, basename="timeinfo")
 router.register(r"timemusic", TimeMusicViewSet, basename="timemusic")
 router.register(r"composers", ComposerViewSet, basename="composerlist")
