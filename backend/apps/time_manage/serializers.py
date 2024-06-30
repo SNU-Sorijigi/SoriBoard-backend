@@ -61,6 +61,7 @@ class TimetableSerializer(serializers.ModelSerializer):
         model = Timetable
         fields = "__all__"
 
+
 class TimetableUnitSerializer(serializers.ModelSerializer):
     user = CreatingSlugRelatedField(slug_field="name", queryset=User.objects.all())
     mentee = CreatingSlugRelatedField(
