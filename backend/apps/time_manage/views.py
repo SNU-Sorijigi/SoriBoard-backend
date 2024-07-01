@@ -13,9 +13,45 @@ class UserViewSet(viewsets.ModelViewSet):
     serializer_class = UserSerializer
 
 
-class SemesterViewSet(viewsets.ModelViewSet):
-    queryset = Semester.objects.all()
-    serializer_class = SemesterSerializer
+class SemesterViewSet(viewsets.ViewSet):
+    def list(self, request):
+        queryset = Semester.objects.all()
+        serializer = SemesterSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def retrieve(self, request, pk=None):
+        queryset = Semester.objects.all()
+        semester = get_object_or_404(queryset, pk=pk)
+        serializer = SemesterSerializer(semester)
+        return Response(serializer.data)
+
+    def create(self, request):
+        serializer = SemesterSerializer(data=request.data)
+        if serializer.is_valid():
+            instance = serializer.save()
+            return Response({"id": instance.id}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def update(self, request, pk=None):
+        semester = Semester.objects.get(pk=pk)
+        serializer = SemesterSerializer(semester, data=request.data, partial=True)
+        if serializer.is_valid():
+            semester = serializer.save()
+            return Response(SemesterSerializer(semester).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def destroy(self, request, pk=None):
+        semester = Semester.objects.get(pk=pk)
+        semester.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def get_by_year_and_semester(self, request):
+        year = request.query_params.get("year")
+        semester = request.query_params.get("semester")
+        if year and semester:
+            queryset = Semester.objects.filter(year=year, semester=semester).first()
+            return Response({"id": queryset.id if queryset else None})
+        return Response(status=status.HTTP_400_BAD_REQUEST)
 
 
 class TimetableViewSet(viewsets.ModelViewSet):
