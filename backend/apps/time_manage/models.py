@@ -7,7 +7,7 @@ class User(models.Model):
     major = models.CharField(max_length=40)  # 전공
     year_id = models.CharField(max_length=2)  # 학번
     is_ob = models.BooleanField(default=False)  # OB 여부
-    sabu = models.ForeignKey(
+    sabu_id = models.ForeignKey(
         "User",
         on_delete=models.CASCADE,
         related_name="jejas",
