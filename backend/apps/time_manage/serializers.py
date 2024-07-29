@@ -3,9 +3,17 @@ from .models import *
 
 
 class UserSerializer(serializers.ModelSerializer):
+    sabu_info = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = "__all__"
+
+    def get_sabu_info(self, obj):
+        if obj.sabu_id:
+            return f"{obj.sabu_id.name} {obj.sabu_id.major} {obj.sabu_id.year_id}"
+        else:
+            return ""
 
 
 class ComposerSerializer(serializers.ModelSerializer):
