@@ -227,7 +227,7 @@ class TimeMusicSerializer(serializers.ModelSerializer):
             music=music,
             music_detail=music_detail,
             conductor=conductor,
-            orchestra=orchestra
+            orchestra=orchestra,
         )
 
         for player_name in player_names:

@@ -125,6 +125,25 @@ class TimeMusicViewSet(viewsets.ViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class CheckSemesterInfoAPIView(APIView):
+    def get(self, request, year):
+        # serializer = SemesterSerializer(semester, many=True)
+        # return Response(serializer.data)
+
+        semester_status = []
+        for sem in [1, 2]:
+            try:
+                semester = Semester.objects.get(year=year, semester_num=sem)
+                if semester:
+                    semester_status.append(semester.id)
+                else:
+                    semester_status.append(None)
+            except Semester.DoesNotExist:
+                semester_status.append(None)
+
+        return Response(semester_status)
+
+
 class CheckTimeInfoAPIView(APIView):
     def get(
         self, request, start_year, start_month, start_day, end_year, end_month, end_day

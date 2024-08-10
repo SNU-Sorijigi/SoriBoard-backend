@@ -30,6 +30,7 @@ class Semester(models.Model):
 
     class Meta:
         db_table = "semester"
+        unique_together = ("year", "semester_num")
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
