@@ -1,0 +1,13 @@
+2.1.0
+
+Semester management features such as user management, timetable management
+is added.
+
+
+2.0.0
+
+Separated frontend and backend. This backend part uses Django Rest Framework(DRF).
+Several new APIs added on top of the previous 1.3.0 version.
+  - Checking time informations to display calendar
+  - Changing order of musics inside the time's playlist
+  - Changing TV display font sizes through websocket
