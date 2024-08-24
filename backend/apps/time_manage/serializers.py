@@ -59,9 +59,15 @@ class CreatingSlugRelatedField(serializers.SlugRelatedField):
 
 
 class SemesterSerializer(serializers.ModelSerializer):
+    timetable_id = serializers.SerializerMethodField()
+
     class Meta:
         model = Semester
         fields = "__all__"
+
+    def get_timetable_id(self, obj):
+        timetable = Timetable.objects.get(semester=obj)
+        return timetable.id if timetable else None
 
 
 class TimetableSerializer(serializers.ModelSerializer):
@@ -71,23 +77,26 @@ class TimetableSerializer(serializers.ModelSerializer):
 
 
 class TimetableUnitSerializer(serializers.ModelSerializer):
-    user = CreatingSlugRelatedField(slug_field="name", queryset=User.objects.all())
-    mentee = CreatingSlugRelatedField(
-        slug_field="name",
-        queryset=User.objects.all(),
-        required=False,
-        allow_null=True,
-    )
+    jigi_info = serializers.SerializerMethodField()
+    mentee_info = serializers.SerializerMethodField()
 
     class Meta:
         model = TimetableUnit
-        fields = [
-            "timetable",
-            "day",
-            "time",
-            "user",
-            "mentee",
-        ]
+        fields = "__all__"
+
+    def get_jigi_info(self, obj):
+        jigi = obj.user if obj.user else None
+        if jigi:
+            return f"{jigi.name} {jigi.major} {jigi.year_id}"
+        else:
+            return ""
+
+    def get_mentee_info(self, obj):
+        mentee = obj.mentee if obj.mentee else None
+        if mentee:
+            return f"{mentee.name} {mentee.major} {mentee.year_id}"
+        else:
+            return ""
 
 
 class SemesterUserSerializer(serializers.ModelSerializer):

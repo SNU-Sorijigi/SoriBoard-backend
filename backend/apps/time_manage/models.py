@@ -33,7 +33,13 @@ class Semester(models.Model):
         unique_together = ("year", "semester_num")
 
     def save(self, *args, **kwargs):
+        if self.pk:
+            old_semester = Semester.objects.get(pk=self.pk)
+            if old_semester.total_time != self.total_time:
+                self.update_timetable_structure()
+
         super().save(*args, **kwargs)
+
         if not hasattr(self, "timetable"):
             Timetable.objects.create(
                 semester=self,
@@ -44,6 +50,33 @@ class Semester(models.Model):
                     for day in range(7)
                 },
             )
+            for day in range(7):
+                for time in range(1, self.total_time + 1):
+                    TimetableUnit.objects.create(
+                        timetable=self.timetable,
+                        day=day,
+                        time=time,
+                    )
+
+    def update_timetable_structure(self):
+        timetable = self.timetable
+        TimetableUnit.objects.filter(timetable=timetable).delete()
+
+        new_table = {
+            str(day): {str(time): None for time in range(1, self.total_time + 1)}
+            for day in range(7)
+        }
+
+        timetable.table = new_table
+        timetable.save()
+
+        for day in range(7):
+            for time in range(1, self.total_time + 1):
+                TimetableUnit.objects.create(
+                    timetable=timetable,
+                    day=day,
+                    time=time,
+                )
 
 
 # 학기별 타임시간표
@@ -62,7 +95,7 @@ class Timetable(models.Model):
             for day in range(7)
         }
         for unit in units:
-            table[str(unit.day)][str(unit.time)] = unit.user.id if unit.user else None
+            table[str(unit.day)][str(unit.time)] = unit.id
         self.table = table
         self.save()
 
@@ -102,6 +135,7 @@ class TimetableUnit(models.Model):
 
     class Meta:
         db_table = "timetable_unit"
+        unique_together = ("timetable", "day", "time")
 
 
 # 학기 - 지기 연결
