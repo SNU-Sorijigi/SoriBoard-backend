@@ -106,24 +106,26 @@ class SemesterUserSerializer(serializers.ModelSerializer):
 
 
 class TimeInfoSerializer(serializers.ModelSerializer):
-    user = CreatingSlugRelatedField(slug_field="name", queryset=User.objects.all())
-    mentee = CreatingSlugRelatedField(
-        slug_field="name",
-        queryset=User.objects.all(),
-        required=False,
-        allow_null=True,
-    )
+    jigi_info = serializers.SerializerMethodField()
+    mentee_info = serializers.SerializerMethodField()
 
     class Meta:
         model = TimeInfo
-        fields = [
-            "date",
-            "time",
-            "user",
-            "mentee",
-            "arrival_time",
-            "mentee_arrival_time",
-        ]
+        fields = "__all__"
+
+    def get_jigi_info(self, obj):
+        jigi = obj.user if obj.user else None
+        if jigi:
+            return f"{jigi.name} {jigi.major} {jigi.year_id}"
+        else:
+            return ""
+
+    def get_mentee_info(self, obj):
+        mentee = obj.mentee if obj.mentee else None
+        if mentee:
+            return f"{mentee.name} {mentee.major} {mentee.year_id}"
+        else:
+            return ""
 
 
 class TimeMusicListSerializer(serializers.ModelSerializer):
@@ -159,8 +161,8 @@ class TimeMusicListSerializer(serializers.ModelSerializer):
 
 
 class TimeInfoDetailSerializer(serializers.ModelSerializer):
-    user = UserNameSerializer(read_only=True)
-    mentee = UserNameSerializer(read_only=True)
+    jigi_info = serializers.SerializerMethodField()
+    mentee_info = serializers.SerializerMethodField()
     time_music = serializers.SerializerMethodField()
 
     class Meta:
@@ -170,6 +172,20 @@ class TimeInfoDetailSerializer(serializers.ModelSerializer):
     def get_time_music(self, obj):
         queryset = obj.timeplaylist.all().order_by("order")
         return TimeMusicListSerializer(queryset, many=True, read_only=True).data
+
+    def get_jigi_info(self, obj):
+        jigi = obj.user if obj.user else None
+        if jigi:
+            return f"{jigi.name} {jigi.major} {jigi.year_id}"
+        else:
+            return ""
+
+    def get_mentee_info(self, obj):
+        mentee = obj.mentee if obj.mentee else None
+        if mentee:
+            return f"{mentee.name} {mentee.major} {mentee.year_id}"
+        else:
+            return ""
 
 
 class TimeMusicSerializer(serializers.ModelSerializer):
