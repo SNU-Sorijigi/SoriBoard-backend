@@ -14,6 +14,8 @@ class User(models.Model):
         null=True,
         blank=True,
     )  # 사부
+    join_year = models.IntegerField(null=True, blank=True, default=None)  # 입부년도
+    join_semester = models.IntegerField(null=True, blank=True, default=None)  # 입부학기
 
     class Meta:
         db_table = "user"
