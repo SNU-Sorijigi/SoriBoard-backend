@@ -19,6 +19,7 @@ class User(models.Model):
 
     class Meta:
         db_table = "user"
+        ordering = ["-join_year", "-join_semester", "-year_id"]
 
 
 # 학기 운영 정보
