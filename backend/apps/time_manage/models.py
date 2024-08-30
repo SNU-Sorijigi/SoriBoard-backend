@@ -7,9 +7,19 @@ class User(models.Model):
     major = models.CharField(max_length=40)  # 전공
     year_id = models.CharField(max_length=2)  # 학번
     is_ob = models.BooleanField(default=False)  # OB 여부
+    sabu_id = models.ForeignKey(
+        "User",
+        on_delete=models.CASCADE,
+        related_name="jejas",
+        null=True,
+        blank=True,
+    )  # 사부
+    join_year = models.IntegerField(null=True, blank=True, default=None)  # 입부년도
+    join_semester = models.IntegerField(null=True, blank=True, default=None)  # 입부학기
 
     class Meta:
         db_table = "user"
+        ordering = ["-join_year", "-join_semester", "-year_id"]
 
 
 # 학기 운영 정보
@@ -23,6 +33,112 @@ class Semester(models.Model):
 
     class Meta:
         db_table = "semester"
+        unique_together = ("year", "semester_num")
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            old_semester = Semester.objects.get(pk=self.pk)
+            if old_semester.total_time != self.total_time:
+                self.update_timetable_structure()
+
+        super().save(*args, **kwargs)
+
+        if not hasattr(self, "timetable"):
+            Timetable.objects.create(
+                semester=self,
+                table={
+                    str(day): {
+                        str(time): None for time in range(1, self.total_time + 1)
+                    }
+                    for day in range(7)
+                },
+            )
+            for day in range(7):
+                for time in range(1, self.total_time + 1):
+                    TimetableUnit.objects.create(
+                        timetable=self.timetable,
+                        day=day,
+                        time=time,
+                    )
+
+    def update_timetable_structure(self):
+        timetable = self.timetable
+        TimetableUnit.objects.filter(timetable=timetable).delete()
+
+        new_table = {
+            str(day): {str(time): None for time in range(1, self.total_time + 1)}
+            for day in range(7)
+        }
+
+        timetable.table = new_table
+        timetable.save()
+
+        for day in range(7):
+            for time in range(1, self.total_time + 1):
+                TimetableUnit.objects.create(
+                    timetable=timetable,
+                    day=day,
+                    time=time,
+                )
+
+
+# 학기별 타임시간표
+class Timetable(models.Model):
+    semester = models.OneToOneField(
+        "Semester", on_delete=models.CASCADE, related_name="timetable"
+    )
+    table = models.JSONField(null=True, blank=True, default=None)
+
+    def update_table(self):
+        units = TimetableUnit.objects.filter(timetable=self)
+        table = {
+            str(day): {
+                str(time): None for time in range(1, self.semester.total_time + 1)
+            }
+            for day in range(7)
+        }
+        for unit in units:
+            table[str(unit.day)][str(unit.time)] = unit.id
+        self.table = table
+        self.save()
+
+    class Meta:
+        db_table = "timetable"
+
+
+# 타임시간표 칸 - 지기 연결
+class TimetableUnit(models.Model):
+    timetable = models.ForeignKey(
+        "Timetable", on_delete=models.CASCADE, related_name="units"
+    )
+    user = models.ForeignKey(
+        "User",
+        on_delete=models.CASCADE,
+        related_name="usersemestertimeinfo",
+        null=True,
+        blank=True,
+    )  # 지기
+    mentee = models.ForeignKey(
+        "User",
+        on_delete=models.CASCADE,
+        related_name="menteesemestertimeinfo",
+        null=True,
+        blank=True,
+    )  # 견습 지기
+    day = models.IntegerField()  # 요일 (Monday = 0)
+    time = models.IntegerField()  # 타임
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.timetable.update_table()
+
+    def delete(self, *args, **kwargs):
+        super().delete(*args, **kwargs)
+        self.timetable.update_table()
+
+    class Meta:
+        db_table = "timetable_unit"
+        unique_together = ("timetable", "day", "time")
 
 
 # 학기 - 지기 연결
