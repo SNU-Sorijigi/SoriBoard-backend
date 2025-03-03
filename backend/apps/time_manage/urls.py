@@ -16,6 +16,7 @@ router.register(
     MusicByComposerViewSet,
     basename="music-by-composer",
 )
+router.register(r"information", NewsViewSet, basename="information")
 
 urlpatterns = [
     path("", include(router.urls)),

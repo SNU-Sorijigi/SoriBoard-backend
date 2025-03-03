@@ -316,3 +316,9 @@ class TimeMusicSerializer(serializers.ModelSerializer):
             instance.players.clear()
 
         return instance
+
+
+class NewsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = News
+        fields = "__all__"

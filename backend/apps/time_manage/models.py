@@ -274,3 +274,11 @@ class Player(models.Model):
 
     class Meta:
         db_table = "player"
+
+
+# 뉴스
+class News(models.Model):
+    content = models.TextField(max_length=100)
+
+    class Meta:
+        db_table = "news"

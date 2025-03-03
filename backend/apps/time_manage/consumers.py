@@ -53,10 +53,13 @@ class TvDisplayConsumer(AsyncWebsocketConsumer):
             _title_font_size = _text_data_json["titleFontSize"]
             _orchestra_font_size = _text_data_json["orchestraFontSize"]
             _player_font_size = _text_data_json["playerFontSize"]
+            _info_news_font_size = _text_data_json["infoNewsFontSize"]
+            _instagram_font_size = _text_data_json["instagramFontSize"]
             _spacer_size1 = _text_data_json["spacerSize1"]
             _spacer_size2 = _text_data_json["spacerSize2"]
             _spacer_size3 = _text_data_json["spacerSize3"]
             _spacer_size4 = _text_data_json["spacerSize4"]
+            _spacer_size5 = _text_data_json["spacerSize5"]
 
             await self.channel_layer.group_send(
                 self.group_name,
@@ -68,10 +71,13 @@ class TvDisplayConsumer(AsyncWebsocketConsumer):
                         "titleFontSize": _title_font_size,
                         "orchestraFontSize": _orchestra_font_size,
                         "playerFontSize": _player_font_size,
+                        "infoNewsFontSize": _info_news_font_size,
+                        "instagramFontSize": _instagram_font_size,
                         "spacerSize1": _spacer_size1,
                         "spacerSize2": _spacer_size2,
                         "spacerSize3": _spacer_size3,
                         "spacerSize4": _spacer_size4,
+                        "spacerSize5": _spacer_size5,
                     },
                 },
             )
