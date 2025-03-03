@@ -258,6 +258,7 @@ class MusicByComposerViewSet(viewsets.ReadOnlyModelViewSet):
             .order_by("-num_time_music")
         )
 
+
 class NewsViewSet(viewsets.ModelViewSet):
     queryset = News.objects.all()
     serializer_class = NewsSerializer

@@ -317,6 +317,7 @@ class TimeMusicSerializer(serializers.ModelSerializer):
 
         return instance
 
+
 class NewsSerializer(serializers.ModelSerializer):
     class Meta:
         model = News
