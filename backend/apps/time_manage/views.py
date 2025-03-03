@@ -257,3 +257,7 @@ class MusicByComposerViewSet(viewsets.ReadOnlyModelViewSet):
             .annotate(num_time_music=Count("timemusic"))
             .order_by("-num_time_music")
         )
+
+class NewsViewSet(viewsets.ModelViewSet):
+    queryset = News.objects.all()
+    serializer_class = NewsSerializer
