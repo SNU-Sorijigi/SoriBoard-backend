@@ -85,18 +85,10 @@ class TimetableUnitSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
     def get_jigi_info(self, obj):
-        jigi = obj.user if obj.user else None
-        if jigi:
-            return f"{jigi.name} {jigi.major} {jigi.year_id}"
-        else:
-            return ""
+        return [f"{jigi.name} {jigi.major} {jigi.year_id}" for jigi in obj.users.all()]
 
     def get_mentee_info(self, obj):
-        mentee = obj.mentee if obj.mentee else None
-        if mentee:
-            return f"{mentee.name} {mentee.major} {mentee.year_id}"
-        else:
-            return ""
+        return [f"{m.name} {m.major} {m.year_id}" for m in obj.mentees.all()]
 
 
 class SemesterUserSerializer(serializers.ModelSerializer):
@@ -108,24 +100,43 @@ class SemesterUserSerializer(serializers.ModelSerializer):
 class TimeInfoSerializer(serializers.ModelSerializer):
     jigi_info = serializers.SerializerMethodField()
     mentee_info = serializers.SerializerMethodField()
+    # Backward-compat single fields
+    user = serializers.SerializerMethodField()
+    mentee = serializers.SerializerMethodField()
 
     class Meta:
         model = TimeInfo
-        fields = "__all__"
+        fields = [
+            "id",
+            "time",
+            "date",
+            "users",
+            "arrival_time",
+            "mentees",
+            "mentee_arrival_time",
+            "time_comment_music",
+            "time_comment_gigi",
+            "time_comment_etc",
+            # legacy-compatible fields
+            "user",
+            "mentee",
+            "jigi_info",
+            "mentee_info",
+        ]
 
     def get_jigi_info(self, obj):
-        jigi = obj.user if obj.user else None
-        if jigi:
-            return f"{jigi.name} {jigi.major} {jigi.year_id}"
-        else:
-            return ""
+        return [f"{u.name} {u.major} {u.year_id}" for u in obj.users.all()]
 
     def get_mentee_info(self, obj):
-        mentee = obj.mentee if obj.mentee else None
-        if mentee:
-            return f"{mentee.name} {mentee.major} {mentee.year_id}"
-        else:
-            return ""
+        return [f"{m.name} {m.major} {m.year_id}" for m in obj.mentees.all()]
+
+    def get_user(self, obj):
+        first = obj.users.first()
+        return first.id if first else None
+
+    def get_mentee(self, obj):
+        first = obj.mentees.first()
+        return first.id if first else None
 
 
 class TimeMusicListSerializer(serializers.ModelSerializer):
@@ -164,28 +175,46 @@ class TimeInfoDetailSerializer(serializers.ModelSerializer):
     jigi_info = serializers.SerializerMethodField()
     mentee_info = serializers.SerializerMethodField()
     time_music = serializers.SerializerMethodField()
+    user = serializers.SerializerMethodField()
+    mentee = serializers.SerializerMethodField()
 
     class Meta:
         model = TimeInfo
-        fields = "__all__"
+        fields = [
+            "id",
+            "time",
+            "date",
+            "users",
+            "arrival_time",
+            "mentees",
+            "mentee_arrival_time",
+            "time_comment_music",
+            "time_comment_gigi",
+            "time_comment_etc",
+            "user",
+            "mentee",
+            "jigi_info",
+            "mentee_info",
+            "time_music",
+        ]
 
     def get_time_music(self, obj):
         queryset = obj.timeplaylist.all().order_by("order")
         return TimeMusicListSerializer(queryset, many=True, read_only=True).data
 
     def get_jigi_info(self, obj):
-        jigi = obj.user if obj.user else None
-        if jigi:
-            return f"{jigi.name} {jigi.major} {jigi.year_id}"
-        else:
-            return ""
+        return [f"{u.name} {u.major} {u.year_id}" for u in obj.users.all()]
 
     def get_mentee_info(self, obj):
-        mentee = obj.mentee if obj.mentee else None
-        if mentee:
-            return f"{mentee.name} {mentee.major} {mentee.year_id}"
-        else:
-            return ""
+        return [f"{m.name} {m.major} {m.year_id}" for m in obj.mentees.all()]
+
+    def get_user(self, obj):
+        first = obj.users.first()
+        return first.id if first else None
+
+    def get_mentee(self, obj):
+        first = obj.mentees.first()
+        return first.id if first else None
 
 
 class TimeMusicSerializer(serializers.ModelSerializer):

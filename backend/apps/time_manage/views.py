@@ -80,17 +80,44 @@ class TimeInfoViewSet(viewsets.ViewSet):
         return Response(serializer.data)
 
     def create(self, request):
-        serializer = TimeInfoSerializer(data=request.data)
+        data = request.data.copy()
+        # Backward-compat: coerce single fields to arrays
+        if "user" in data and "users" not in data:
+            u = data.get("user")
+            data["users"] = [u] if u else []
+        if "mentee" in data and "mentees" not in data:
+            m = data.get("mentee")
+            data["mentees"] = [m] if m else []
+        serializer = TimeInfoSerializer(data=data)
         if serializer.is_valid():
             instance = serializer.save()
+            # Attach users/mentees if provided
+            users = data.get("users", [])
+            mentees = data.get("mentees", [])
+            if users:
+                instance.users.set(users)
+            if mentees:
+                instance.mentees.set(mentees)
             return Response({"id": instance.id}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def update(self, request, pk=None):
         time_info = TimeInfo.objects.get(pk=pk)
-        serializer = TimeInfoSerializer(time_info, data=request.data, partial=True)
+        data = request.data.copy()
+        # Backward-compat: coerce single fields to arrays
+        if "user" in data and "users" not in data:
+            u = data.get("user")
+            data["users"] = [u] if u else []
+        if "mentee" in data and "mentees" not in data:
+            m = data.get("mentee")
+            data["mentees"] = [m] if m else []
+        serializer = TimeInfoSerializer(time_info, data=data, partial=True)
         if serializer.is_valid():
             time_info = serializer.save()
+            if "users" in data:
+                time_info.users.set(data.get("users", []))
+            if "mentees" in data:
+                time_info.mentees.set(data.get("mentees", []))
             return Response(TimeInfoSerializer(time_info).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
