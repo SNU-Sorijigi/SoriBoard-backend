@@ -111,20 +111,16 @@ class TimetableUnit(models.Model):
     timetable = models.ForeignKey(
         "Timetable", on_delete=models.CASCADE, related_name="units"
     )
-    user = models.ForeignKey(
+    users = models.ManyToManyField(
         "User",
-        on_delete=models.CASCADE,
         related_name="usersemestertimeinfo",
-        null=True,
         blank=True,
-    )  # 지기
-    mentee = models.ForeignKey(
+    )  # 지기(들)
+    mentees = models.ManyToManyField(
         "User",
-        on_delete=models.CASCADE,
         related_name="menteesemestertimeinfo",
-        null=True,
         blank=True,
-    )  # 견습 지기
+    )  # 견습 지기(들)
     day = models.IntegerField()  # 요일 (Monday = 0)
     time = models.IntegerField()  # 타임
 
@@ -167,17 +163,17 @@ class SemesterUser(models.Model):
 class TimeInfo(models.Model):
     time = models.IntegerField()  # 타임
     date = models.DateField()  # 날짜
-    user = models.ForeignKey(
-        "User", on_delete=models.CASCADE, related_name="time"
-    )  # 지기
-    arrival_time = models.TimeField()  # 지기 도착 시간
-    mentee = models.ForeignKey(
+    users = models.ManyToManyField(
         "User",
-        on_delete=models.CASCADE,
-        related_name="mentee_time",
-        null=True,
+        related_name="time",
         blank=True,
-    )  # 견습 지기
+    )  # 지기(들)
+    arrival_time = models.TimeField()  # 지기(들) 도착 시간
+    mentees = models.ManyToManyField(
+        "User",
+        related_name="mentee_time",
+        blank=True,
+    )  # 견습 지기(들)
     mentee_arrival_time = models.TimeField(null=True, blank=True)  # 견습 지기 도착 시간
     time_comment_music = models.TextField(
         default="", blank=True, null=True
