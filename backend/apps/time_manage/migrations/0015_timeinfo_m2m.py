@@ -22,12 +22,16 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="timeinfo",
             name="users",
-            field=models.ManyToManyField(blank=True, related_name="time", to="time_manage.user"),
+            field=models.ManyToManyField(
+                blank=True, related_name="time", to="time_manage.user"
+            ),
         ),
         migrations.AddField(
             model_name="timeinfo",
             name="mentees",
-            field=models.ManyToManyField(blank=True, related_name="mentee_time", to="time_manage.user"),
+            field=models.ManyToManyField(
+                blank=True, related_name="mentee_time", to="time_manage.user"
+            ),
         ),
         migrations.RunPython(forwards_copy_timeinfo_users, migrations.RunPython.noop),
         migrations.RemoveField(

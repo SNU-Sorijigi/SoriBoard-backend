@@ -85,16 +85,10 @@ class TimetableUnitSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
     def get_jigi_info(self, obj):
-        return [
-            f"{jigi.name} {jigi.major} {jigi.year_id}"
-            for jigi in obj.users.all()
-        ]
+        return [f"{jigi.name} {jigi.major} {jigi.year_id}" for jigi in obj.users.all()]
 
     def get_mentee_info(self, obj):
-        return [
-            f"{m.name} {m.major} {m.year_id}"
-            for m in obj.mentees.all()
-        ]
+        return [f"{m.name} {m.major} {m.year_id}" for m in obj.mentees.all()]
 
 
 class SemesterUserSerializer(serializers.ModelSerializer):
@@ -131,16 +125,10 @@ class TimeInfoSerializer(serializers.ModelSerializer):
         ]
 
     def get_jigi_info(self, obj):
-        return [
-            f"{u.name} {u.major} {u.year_id}"
-            for u in obj.users.all()
-        ]
+        return [f"{u.name} {u.major} {u.year_id}" for u in obj.users.all()]
 
     def get_mentee_info(self, obj):
-        return [
-            f"{m.name} {m.major} {m.year_id}"
-            for m in obj.mentees.all()
-        ]
+        return [f"{m.name} {m.major} {m.year_id}" for m in obj.mentees.all()]
 
     def get_user(self, obj):
         first = obj.users.first()
@@ -215,16 +203,10 @@ class TimeInfoDetailSerializer(serializers.ModelSerializer):
         return TimeMusicListSerializer(queryset, many=True, read_only=True).data
 
     def get_jigi_info(self, obj):
-        return [
-            f"{u.name} {u.major} {u.year_id}"
-            for u in obj.users.all()
-        ]
+        return [f"{u.name} {u.major} {u.year_id}" for u in obj.users.all()]
 
     def get_mentee_info(self, obj):
-        return [
-            f"{m.name} {m.major} {m.year_id}"
-            for m in obj.mentees.all()
-        ]
+        return [f"{m.name} {m.major} {m.year_id}" for m in obj.mentees.all()]
 
     def get_user(self, obj):
         first = obj.users.first()
