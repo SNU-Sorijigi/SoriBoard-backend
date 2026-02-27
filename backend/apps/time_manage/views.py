@@ -2,10 +2,32 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 import datetime
+import re
 from django.shortcuts import get_object_or_404
 from .models import *
 from .serializers import *
 from django.db.models import Count
+
+
+_CATALOG_PATTERNS = [
+    r'Op\.?\s*\d+(?:\s*,?\s*No\.?\s*\d+)?',  # Op. 55, Op. 55 No. 1
+    r'BWV\s*\d+[a-z]?',                        # BWV 147, BWV 147a
+    r'\bD[.\s]\s*\d{3,}\b',                    # D. 960 (Schubert, ≥3 digits)
+    r'\bKV?\.?\s*\d+\b',                       # K. 550, KV 550 (Mozart)
+    r'WoO\.?\s*\d+',                           # WoO 80 (Beethoven)
+    r'\bZ\.?\s*\d+\b',                         # Z. 340 (Purcell)
+    r'HWV\s*\d+',                              # HWV 56 (Handel)
+]
+
+
+def extract_catalog_ids(title):
+    """Extract and normalize catalog identifiers from a music title."""
+    ids = set()
+    for pattern in _CATALOG_PATTERNS:
+        for match in re.finditer(pattern, title, re.IGNORECASE):
+            normalized = re.sub(r'\s+', '', match.group().lower()).rstrip('.')
+            ids.add(normalized)
+    return ids
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -289,3 +311,36 @@ class MusicByComposerViewSet(viewsets.ReadOnlyModelViewSet):
 class NewsViewSet(viewsets.ModelViewSet):
     queryset = News.objects.all()
     serializer_class = NewsSerializer
+
+
+class CheckDuplicateMusicView(APIView):
+    def get(self, request):
+        composer_name = request.query_params.get("composer_name", "")
+        title = request.query_params.get("title", "")
+        days = int(request.query_params.get("days", 7))
+
+        new_ids = extract_catalog_ids(title)
+        if not new_ids:
+            return Response({"duplicates": []})
+
+        cutoff = datetime.date.today() - datetime.timedelta(days=days)
+        candidates = (
+            TimeMusic.objects
+            .filter(music__composer__name=composer_name, time__date__gte=cutoff)
+            .select_related("music", "music__composer", "time")
+        )
+
+        duplicates = []
+        for tm in candidates:
+            existing_ids = extract_catalog_ids(tm.music.title)
+            matched = new_ids & existing_ids
+            if matched:
+                duplicates.append({
+                    "date": str(tm.time.date),
+                    "time": tm.time.time,
+                    "music_title": tm.music.title,
+                    "composer_name": tm.music.composer.name,
+                    "matched_identifiers": sorted(matched),
+                })
+
+        return Response({"duplicates": duplicates})

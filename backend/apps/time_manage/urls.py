@@ -35,4 +35,9 @@ urlpatterns = [
         SwapOrderView.as_view(),
         name="swaporder",
     ),
+    path(
+        "check-duplicate/",
+        CheckDuplicateMusicView.as_view(),
+        name="check-duplicate",
+    ),
 ]
