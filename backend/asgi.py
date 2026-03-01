@@ -19,7 +19,6 @@ from channels.auth import AuthMiddlewareStack
 from channels.routing import ProtocolTypeRouter, URLRouter
 import apps.time_manage.routing as time_manage_routing
 
-
 application = ProtocolTypeRouter(
     {
         "http": get_asgi_application(),
