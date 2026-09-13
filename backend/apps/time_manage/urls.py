@@ -52,6 +52,7 @@ urlpatterns = [
         CheckDuplicateMusicView.as_view(),
         name="check-duplicate",
     ),
+    path("recent-plays/", RecentPlaysView.as_view(), name="recent-plays"),
     # 통계
     path("stats/summary/", StatsSummaryView.as_view(), name="stats-summary"),
     path("stats/composers/", TopComposersStatsView.as_view(), name="stats-composers"),
