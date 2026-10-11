@@ -164,6 +164,122 @@ class TimetableUnitTests(APITestCase):
         self.assertEqual(list(self.cell.users.all()), [self.jigi, self.senior])
         self.assertEqual(self.table(), table)
 
+    def test_a_cell_outside_the_timetable_is_400_and_not_saved(self):
+        # Weekdays 0 to 6, 타임 1 to the semester's 4.
+        url = reverse("timetableunit-detail", args=[self.cell.id])
+        edit = {"day": 1, "time": 2, "timetable": self.timetable.id}
+        table = self.table()
+        for field, value in [
+            ("day", -1),
+            ("day", 7),
+            ("time", 0),
+            ("time", 5),
+            ("time", int("9" * 25)),
+        ]:
+            for method, body in [
+                ("put", {**edit, field: value, "users": [self.other.id]}),
+                ("patch", {field: value}),
+            ]:
+                with self.subTest(method=method, field=field, value=value):
+                    response = getattr(self.client, method)(url, body, format="json")
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(list(response.json()), [field])
+                    self.cell.refresh_from_db()
+                    self.assertEqual((self.cell.day, self.cell.time), (1, 2))
+                    self.assertEqual(
+                        list(self.cell.users.all()), [self.jigi, self.senior]
+                    )
+                    self.assertEqual(self.table(), table)
+        self.assertEqual(
+            self.client.patch(url, {"time": 5}, format="json").json(),
+            {"time": ["Ensure this value is less than or equal to 4."]},
+        )
+
+        # Every cell can still be edited.
+        other_cell = self.cell_at(day=3, time=4)
+        response = self.client.put(
+            reverse("timetableunit-detail", args=[other_cell.id]),
+            {
+                "day": 3,
+                "time": 4,
+                "timetable": self.timetable.id,
+                "users": [self.other.id],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), self.body(other_cell, [self.other]))
+
+    def test_a_new_cell_outside_the_timetable_is_400_and_not_created(self):
+        for field, value in [("day", 7), ("time", 5)]:
+            with self.subTest(field=field, value=value):
+                response = self.client.post(
+                    reverse("timetableunit-list"),
+                    {"day": 3, "time": 4, "timetable": self.timetable.id, field: value},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(list(response.json()), [field])
+                self.assertEqual(
+                    TimetableUnit.objects.filter(timetable=self.timetable).count(),
+                    7 * 4,
+                )
+
+    def test_a_cell_moved_to_another_timetable_must_fit_its_times(self):
+        longer = Semester.objects.create(
+            year=2027,
+            semester_num=1,
+            total_time=5,
+            start_time="09:30:00",
+            end_time="17:40:00",
+        )
+        last = TimetableUnit.objects.get(timetable=longer.timetable, day=0, time=5)
+        url = reverse("timetableunit-detail", args=[last.id])
+        for method, body in [
+            ("put", {"day": 0, "time": 5, "timetable": self.timetable.id}),
+            ("patch", {"timetable": self.timetable.id}),
+        ]:
+            with self.subTest(method=method):
+                response = getattr(self.client, method)(url, body, format="json")
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(
+                    response.json(),
+                    {"time": ["Ensure this value is less than or equal to 4."]},
+                )
+                last.refresh_from_db()
+                self.assertEqual(last.timetable, longer.timetable)
+
+    def test_the_first_and_last_weekday_and_time_are_accepted(self):
+        for day, time in [(0, 1), (6, 4)]:
+            with self.subTest(day=day, time=time):
+                cell = self.cell_at(day, time)
+                response = self.client.put(
+                    reverse("timetableunit-detail", args=[cell.id]),
+                    {
+                        "day": day,
+                        "time": time,
+                        "timetable": self.timetable.id,
+                        "users": [self.other.id],
+                        "mentees": [self.mentee.id],
+                    },
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    response.json(), self.body(cell, [self.other], [self.mentee])
+                )
+        # An edit that sends only the 지기 keeps the cell's place.
+        response = self.client.patch(
+            reverse("timetableunit-detail", args=[self.cell.id]),
+            {"users": [self.other.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(), self.body(self.cell, [self.other], [self.mentee])
+        )
+        self.assertEqual(self.table()["1"]["2"], self.cell.id)
+
     def test_lists_every_cell(self):
         late = self.cell_at(day=5, time=4)
         late.mentees.set([self.other])

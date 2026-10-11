@@ -91,6 +91,28 @@ class TimetableUnitSerializer(serializers.ModelSerializer):
     class Meta:
         model = TimetableUnit
         fields = "__all__"
+        extra_kwargs = {
+            # Timetable.update_table has weekdays 0 to 6; a cell on another day
+            # made it fail, and with it every later edit of the timetable.
+            "day": {"min_value": 0, "max_value": 6},
+            # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500).
+            "time": {"min_value": 1, "max_value": 2**63 - 1},
+        }
+
+    def validate(self, attrs):
+        # It has 타임 1 to the semester's total_time: a cell past that fell
+        # out of the timetable. PATCH may send neither, so use the cell's.
+        timetable = (
+            attrs["timetable"] if "timetable" in attrs else self.instance.timetable
+        )
+        time = attrs["time"] if "time" in attrs else self.instance.time
+        total_time = timetable.semester.total_time
+        if time > total_time:
+            message = self.fields["time"].error_messages["max_value"]
+            raise serializers.ValidationError(
+                {"time": [message.format(max_value=total_time)]}
+            )
+        return attrs
 
     def get_jigi_info(self, obj):
         return [f"{jigi.name} {jigi.major} {jigi.year_id}" for jigi in obj.users.all()]
