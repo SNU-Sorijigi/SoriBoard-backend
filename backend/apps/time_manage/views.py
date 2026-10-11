@@ -401,7 +401,8 @@ class RecentPlaysView(APIView):
 class CheckDuplicateMusicView(APIView):
     def get(self, request):
         reference_date = session_reference_date(request)
-        composer_name = request.query_params.get("composer_name", "")
+        # Saved composer names are trimmed (CharField), so trim the lookup too.
+        composer_name = request.query_params.get("composer_name", "").strip()
         title = request.query_params.get("title", "")
         days = serializers.IntegerField(min_value=1).run_validation(
             request.query_params.get("days", 7)

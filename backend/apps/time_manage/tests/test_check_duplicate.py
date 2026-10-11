@@ -127,6 +127,11 @@ class CheckDuplicateTests(APITestCase):
             with self.subTest(composer_name=composer_name, title=title):
                 self.assertEqual(self.duplicates(title, composer_name), [])
 
+    def test_composer_name_is_trimmed_like_the_saved_name(self):
+        self.play(CONCERTO)
+        result = self.duplicates("Op. 18", f"  {RACHMANINOFF} ")
+        self.assertEqual([d["music_title"] for d in result], [CONCERTO])
+
     def test_window_ends_on_the_session_date_and_defaults_to_seven_days(self):
         for days_ago in (-1, 0, 6, 7):
             self.play(CONCERTO, days_ago=days_ago)
