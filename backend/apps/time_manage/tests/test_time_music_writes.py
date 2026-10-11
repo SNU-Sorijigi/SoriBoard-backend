@@ -96,3 +96,47 @@ class TimeMusicWriteTests(APITestCase):
                 response = self.edit(player_names=player_names)
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(self.snapshot()[3], [])
+
+    def test_edit_without_title_or_composer_is_400_and_changes_nothing(self):
+        before = self.snapshot(), self.counts()
+        for missing in ["title", "composer_name"]:
+            with self.subTest(missing=missing):
+                response = self.edit(**{missing: None})
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(list(response.json()), [missing])
+
+        response = self.client.put(
+            reverse("timemusic-detail", args=[self.play.id]),
+            {"order": 3},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(sorted(response.json()), ["composer_name", "title"])
+        self.assertEqual((self.snapshot(), self.counts()), before)
+
+    def test_edit_skips_blank_player_rows(self):
+        # The edit form's "+" adds a blank row and sends it as is.
+        for player_names, expected in [
+            (["", "바이올린: 정경화"], ["바이올린: 정경화"]),
+            (["바이올린: 정경화", ""], ["바이올린: 정경화"]),
+            (["   ", "피아노: 조성진"], ["피아노: 조성진"]),
+            ([""], []),
+        ]:
+            with self.subTest(player_names=player_names):
+                response = self.edit(player_names=player_names)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(self.snapshot()[3], expected)
+
+    def test_malformed_player_rows_are_400_and_save_nothing(self):
+        before = self.snapshot(), self.counts()
+        for row in ["피아노:조성진", "조성진", "피아노: 조성진: 협연"]:
+            player_names = ["첼로: 요요 마", row]
+            for request in [self.add, self.edit]:
+                with self.subTest(row=row, request=request.__name__):
+                    response = request(player_names=player_names)
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(
+                        response.json(),
+                        {"player_names": [f'"{row}" is not "instrument: name".']},
+                    )
+                    self.assertEqual((self.snapshot(), self.counts()), before)

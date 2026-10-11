@@ -255,6 +255,25 @@ class TimeMusicSerializer(serializers.ModelSerializer):
             "players": {"read_only": True},
         }
 
+    def validate_player_names(self, value):
+        # create() and update() split each non-blank row on ": ".
+        malformed = [row for row in value if row and len(row.split(": ")) != 2]
+        if malformed:
+            raise serializers.ValidationError(
+                [f'"{row}" is not "instrument: name".' for row in malformed]
+            )
+        return value
+
+    def validate(self, attrs):
+        # PUT is partial (the edit form sends no time or order), but update()
+        # rebuilds the music from these two, so a PUT needs them too.
+        missing = [name for name in ("title", "composer_name") if name not in attrs]
+        if missing:
+            raise serializers.ValidationError(
+                {name: self.fields[name].error_messages["required"] for name in missing}
+            )
+        return attrs
+
     def create(self, validated_data):
         composer_name = validated_data.pop("composer_name", "")
         composer, _ = Composer.objects.get_or_create(name=composer_name)
@@ -344,11 +363,12 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         if player_names:
             instance.players.clear()
             for player_name in player_names:
-                instrument, name = player_name.split(": ")
-                player, _ = Player.objects.get_or_create(
-                    instrument=instrument.strip(), name=name.strip()
-                )
-                instance.players.add(player)
+                if player_name:
+                    instrument, name = player_name.split(": ")
+                    player, _ = Player.objects.get_or_create(
+                        instrument=instrument.strip(), name=name.strip()
+                    )
+                    instance.players.add(player)
         else:
             instance.players.clear()
 
