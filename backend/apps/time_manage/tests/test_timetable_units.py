@@ -132,3 +132,21 @@ class TimetableUnitTests(APITestCase):
         self.assertEqual(cells.pop(late.id), self.body(late, mentees=[self.other]))
         for cell in TimetableUnit.objects.exclude(id__in=[self.cell.id, late.id]):
             self.assertEqual(cells.pop(cell.id), self.body(cell))
+
+    def test_reads_a_cell_or_every_cell_in_three_queries(self):
+        for cell in TimetableUnit.objects.exclude(id=self.cell.id)[:15]:
+            cell.users.set([self.other, self.jigi])
+            cell.mentees.set([self.mentee])
+        # The cells, their 지기, their 견습.
+        with self.assertNumQueries(3):
+            response = self.client.get(
+                reverse("timetableunit-detail", args=[self.cell.id])
+            )
+        self.assertEqual(
+            response.json(),
+            self.body(self.cell, [self.jigi, self.senior], [self.mentee]),
+        )
+        with self.assertNumQueries(3):
+            response = self.client.get(reverse("timetableunit-list"))
+        self.assertEqual(len(response.json()), 7 * 4)
+        self.assertEqual(sum(len(cell["users"]) for cell in response.json()), 32)

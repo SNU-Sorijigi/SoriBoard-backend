@@ -90,6 +90,14 @@ class TimetableUnitViewSet(viewsets.ModelViewSet):
     queryset = TimetableUnit.objects.all()
     serializer_class = TimetableUnitSerializer
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.action in ("list", "retrieve"):
+            # A cell shows its 지기 and 견습 twice: as ids and as info.
+            # Writes skip this: DRF drops the prefetch before answering.
+            queryset = queryset.prefetch_related("users", "mentees")
+        return queryset
+
 
 class TimeInfoViewSet(viewsets.ViewSet):
     def list(self, request):
