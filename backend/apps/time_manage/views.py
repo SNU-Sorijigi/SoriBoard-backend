@@ -212,24 +212,22 @@ class CheckTimeInfoAPIView(APIView):
         if start_date > end_date:
             return Response({"error": "Start date must be before end date"}, status=400)
 
+        # One query for the whole range; (time, date) is unique.
+        session_ids = {
+            (date, time): pk
+            for date, time, pk in TimeInfo.objects.filter(
+                date__range=(start_date, end_date)
+            ).values_list("date", "time", "id")
+        }
+
         times_status = []
         for single_date in (
             start_date + datetime.timedelta(days=n)
             for n in range((end_date - start_date).days + 1)
         ):
-            day_status = []
-            for time in range(1, 6):
-                try:
-                    time_info = TimeInfo.objects.filter(
-                        date=single_date, time=time
-                    ).first()
-                    if time_info:
-                        day_status.append(time_info.id)
-                    else:
-                        day_status.append(None)
-                except TimeInfo.DoesNotExist:
-                    day_status.append(None)
-            times_status.append(day_status)
+            times_status.append(
+                [session_ids.get((single_date, time)) for time in range(1, 6)]
+            )
 
         return Response(times_status)
 

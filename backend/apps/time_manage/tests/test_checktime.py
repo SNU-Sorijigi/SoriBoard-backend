@@ -72,3 +72,13 @@ class CheckTimeTests(APITestCase):
                 response = self.client.get(reverse("checktime", args=args))
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(response.json(), {"error": error})
+
+    def test_one_query_whatever_the_range_length(self):
+        # The session page looks for its neighbours up to ten years each way.
+        day = datetime.date(2026, 9, 7)
+        self.session(day, 1)
+        for days in (3, 3650):
+            span = datetime.timedelta(days=days)
+            with self.subTest(days=days), self.assertNumQueries(1):
+                rows = self.grid(day - span, day + span)
+            self.assertEqual(len(rows), 2 * days + 1)
