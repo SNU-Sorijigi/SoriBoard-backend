@@ -64,6 +64,14 @@ class SemesterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Semester
         fields = "__all__"
+        extra_kwargs = {
+            # stats reads a 2nd semester up to the next year's February.
+            "year": {"min_value": 1, "max_value": 9998},
+            # checksemester/ and the session calendar know only these two.
+            "semester_num": {"min_value": 1, "max_value": 2},
+            # With no 타임 a semester has no timetable cells at all.
+            "total_time": {"min_value": 1},
+        }
 
     def get_timetable_id(self, obj):
         timetable = Timetable.objects.get(semester=obj)
