@@ -20,12 +20,17 @@ _CATALOG_PATTERNS = [
 
 
 def extract_catalog_ids(title):
-    """Extract and normalize catalog identifiers from a music title."""
-    ids = set()
+    """Map the catalog identifiers in a music title to their normalized form.
+
+    Keys ignore dots and commas and read KV as K, so "Op. 18", "Op 18" and
+    "op.18" (or "K. 550" and "KV 550") match as the same work.
+    """
+    ids = {}
     for pattern in _CATALOG_PATTERNS:
         for match in re.finditer(pattern, title, re.IGNORECASE):
             normalized = re.sub(r"\s+", "", match.group().lower()).rstrip(".")
-            ids.add(normalized)
+            key = re.sub(r"^kv", "k", re.sub(r"[.,]", "", normalized))
+            ids.setdefault(key, normalized)
     return ids
 
 
@@ -415,7 +420,7 @@ class CheckDuplicateMusicView(APIView):
         duplicates = []
         for tm in candidates:
             existing_ids = extract_catalog_ids(tm.music.title)
-            matched = new_ids & existing_ids
+            matched = new_ids.keys() & existing_ids.keys()
             if matched:
                 duplicates.append(
                     {
@@ -423,7 +428,7 @@ class CheckDuplicateMusicView(APIView):
                         "time": tm.time.time,
                         "music_title": tm.music.title,
                         "composer_name": tm.music.composer.name,
-                        "matched_identifiers": sorted(matched),
+                        "matched_identifiers": sorted(new_ids[key] for key in matched),
                     }
                 )
 

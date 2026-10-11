@@ -61,6 +61,34 @@ class CheckDuplicateTests(APITestCase):
                 self.assertEqual(result[0]["music_title"], played)
                 self.assertEqual(result[0]["matched_identifiers"], [identifier])
 
+    def test_catalog_numbers_match_whatever_their_punctuation_or_spacing(self):
+        # matched_identifiers reports the requested title's form, spaces removed.
+        for composer_name, played, title, identifier in (
+            (RACHMANINOFF, CONCERTO, "Piano Concerto No. 2 Op 18", "op18"),
+            ("차이콥스키", "피아노 협주곡 제1번 Op 23", "Op.23", "op.23"),
+            ("쇼팽", "녹턴 Op. 9, No. 2", "Nocturne Op.9 No.2", "op.9no.2"),
+            ("슈베르트", "피아노 소나타 D. 960", "Piano Sonata D 960", "d960"),
+            ("모차르트", "교향곡 제40번 K. 550", "Symphony No. 40 KV 550", "kv550"),
+            ("모차르트", "교향곡 제41번 KV 551", "Symphony No. 41 K551", "k551"),
+            ("베토벤", "안단테 파보리 WoO. 57", "Andante favori WoO 57", "woo57"),
+            ("퍼셀", "디도와 에네아스 Z. 626", "Dido and Aeneas Z 626", "z626"),
+        ):
+            with self.subTest(title=title):
+                self.play(played, composer_name)
+                result = self.duplicates(title, composer_name)
+                self.assertEqual(len(result), 1)
+                self.assertEqual(result[0]["music_title"], played)
+                self.assertEqual(result[0]["matched_identifiers"], [identifier])
+
+        # Ignoring punctuation must not merge different numbers.
+        for composer_name, title in (
+            ("쇼팽", "Op. 92"),
+            ("쇼팽", "Op. 9 No. 1"),
+            ("모차르트", "KV 55"),
+        ):
+            with self.subTest(title=title):
+                self.assertEqual(self.duplicates(title, composer_name), [])
+
     def test_lists_every_earlier_play_of_the_work_with_its_session(self):
         self.play(CONCERTO, time=2)
         self.play("Piano Concerto No. 2 (Op. 18)", days_ago=3, time=4)
