@@ -117,6 +117,53 @@ class TimetableUnitTests(APITestCase):
         ).json()["table"]
         self.assertEqual(table["1"]["2"], self.cell.id)
 
+    def table(self):
+        return self.client.get(
+            reverse("timetable-detail", args=[self.timetable.id])
+        ).json()["table"]
+
+    def test_a_deleted_cell_can_be_added_back_in_its_slot(self):
+        gone = self.cell_at(day=3, time=4)
+        response = self.client.delete(reverse("timetableunit-detail", args=[gone.id]))
+        self.assertEqual(response.status_code, 204)
+        self.assertIsNone(self.table()["3"]["4"])
+
+        response = self.client.post(
+            reverse("timetableunit-list"),
+            {
+                "day": 3,
+                "time": 4,
+                "timetable": self.timetable.id,
+                "users": [self.other.id],
+                "mentees": [],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        added = self.cell_at(day=3, time=4)
+        self.assertEqual(response.json(), self.body(added, [self.other]))
+        self.assertEqual(self.table()["3"]["4"], added.id)
+
+    def test_a_cell_cannot_take_another_cells_slot(self):
+        table = self.table()
+        response = self.client.put(
+            reverse("timetableunit-detail", args=[self.cell.id]),
+            {
+                "day": 3,
+                "time": 4,
+                "timetable": self.timetable.id,
+                "users": [self.other.id],
+                "mentees": [],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(list(response.json()), ["non_field_errors"])
+        self.cell.refresh_from_db()
+        self.assertEqual((self.cell.day, self.cell.time), (1, 2))
+        self.assertEqual(list(self.cell.users.all()), [self.jigi, self.senior])
+        self.assertEqual(self.table(), table)
+
     def test_lists_every_cell(self):
         late = self.cell_at(day=5, time=4)
         late.mentees.set([self.other])
