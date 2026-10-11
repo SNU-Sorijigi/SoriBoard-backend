@@ -35,7 +35,8 @@ def extract_catalog_ids(title):
 
 
 class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all()
+    # sabu_info spells out each user's 사부.
+    queryset = User.objects.select_related("sabu_id")
     serializer_class = UserSerializer
 
 

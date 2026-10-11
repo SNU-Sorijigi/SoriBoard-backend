@@ -81,3 +81,28 @@ class UserReadTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["major"], "작곡과")
         self.assertEqual(response.json()["sabu_info"], "이사부 물리학과 20")
+
+    def test_reads_users_in_one_query_however_many_have_a_sabu(self):
+        for i in range(20):
+            User.objects.create(
+                name=f"제자{i}",
+                major="음악학과",
+                year_id="24",
+                join_year=2024,
+                sabu_id=[self.sabu, self.jeja, self.newcomer][i % 3],
+            )
+        with self.assertNumQueries(1):
+            response = self.client.get(reverse("user-list"))
+        self.assertEqual(len(response.json()), 24)
+
+        with self.assertNumQueries(1):
+            response = self.client.get(reverse("user-detail", args=[self.jeja.id]))
+        self.assertEqual(response.json()["sabu_info"], "이사부 물리학과 20")
+        # Read the 지기 with the 사부, then save; the answer needs no third.
+        with self.assertNumQueries(2):
+            response = self.client.patch(
+                reverse("user-detail", args=[self.jeja.id]),
+                {"major": "작곡과"},
+                format="json",
+            )
+        self.assertEqual(response.json()["sabu_info"], "이사부 물리학과 20")
