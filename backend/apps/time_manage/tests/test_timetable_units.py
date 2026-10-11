@@ -1,0 +1,134 @@
+from django.urls import reverse
+from rest_framework.test import APITestCase
+
+from apps.time_manage.models import Semester, TimetableUnit, User
+
+
+class TimetableUnitTests(APITestCase):
+    """The semester timetable: timetable/<id>/ maps each weekday and slot to a
+    cell, and the page fetches each cell from timetableunit/<id>/."""
+
+    def setUp(self):
+        self.semester = Semester.objects.create(
+            year=2026,
+            semester_num=2,
+            total_time=4,
+            start_time="09:30:00",
+            end_time="17:40:00",
+        )
+        self.timetable = self.semester.timetable
+        self.jigi = User.objects.create(
+            name="김지기", major="음악학과", year_id="22", join_year=2022
+        )
+        self.senior = User.objects.create(
+            name="이선배", major="물리학과", year_id="21", join_year=2021
+        )
+        self.mentee = User.objects.create(
+            name="박견습", major="경제학부", year_id="25", join_year=2025
+        )
+        self.other = User.objects.create(
+            name="최지기", major="작곡과", year_id="23", join_year=2023
+        )
+        self.cell = self.cell_at(day=1, time=2)
+        self.cell.users.set([self.senior, self.jigi])
+        self.cell.mentees.set([self.mentee])
+
+    def cell_at(self, day, time):
+        return TimetableUnit.objects.get(timetable=self.timetable, day=day, time=time)
+
+    def body(self, cell, jigis=(), mentees=()):
+        # Newest 지기 first (User.Meta.ordering), in the ids and the info alike.
+        return {
+            "id": cell.id,
+            "jigi_info": [f"{u.name} {u.major} {u.year_id}" for u in jigis],
+            "mentee_info": [f"{m.name} {m.major} {m.year_id}" for m in mentees],
+            "day": cell.day,
+            "time": cell.time,
+            "timetable": self.timetable.id,
+            "users": [u.id for u in jigis],
+            "mentees": [m.id for m in mentees],
+        }
+
+    def test_timetable_maps_every_weekday_and_slot_to_a_cell(self):
+        response = self.client.get(
+            reverse("timetable-detail", args=[self.timetable.id])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "id": self.timetable.id,
+                "table": {
+                    str(day): {
+                        str(time): self.cell_at(day, time).id for time in range(1, 5)
+                    }
+                    for day in range(7)
+                },
+                "semester": self.semester.id,
+            },
+        )
+
+    def test_a_cell_lists_its_jigis_and_mentees(self):
+        response = self.client.get(reverse("timetableunit-detail", args=[self.cell.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            self.body(self.cell, [self.jigi, self.senior], [self.mentee]),
+        )
+        self.assertEqual(
+            response.json()["jigi_info"], ["김지기 음악학과 22", "이선배 물리학과 21"]
+        )
+
+    def test_an_empty_cell(self):
+        empty = self.cell_at(day=3, time=4)
+        response = self.client.get(reverse("timetableunit-detail", args=[empty.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), self.body(empty))
+
+    def test_editing_a_cell_changes_and_clears_its_jigis_and_mentees(self):
+        url = reverse("timetableunit-detail", args=[self.cell.id])
+        # What timetableunit.svelte sends: the cell as read, with the new ids.
+        edit = {"day": 1, "time": 2, "timetable": self.timetable.id}
+
+        response = self.client.put(
+            url,
+            {
+                **edit,
+                "users": [self.jigi.id, self.other.id],
+                "mentees": [self.mentee.id],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        changed = self.body(self.cell, [self.other, self.jigi], [self.mentee])
+        self.assertEqual(response.json(), changed)
+        self.assertEqual(self.client.get(url).json(), changed)
+
+        response = self.client.put(
+            url, {**edit, "users": [], "mentees": []}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), self.body(self.cell))
+        self.assertEqual(self.client.get(url).json(), self.body(self.cell))
+
+        # The cell keeps its place in the timetable.
+        table = self.client.get(
+            reverse("timetable-detail", args=[self.timetable.id])
+        ).json()["table"]
+        self.assertEqual(table["1"]["2"], self.cell.id)
+
+    def test_lists_every_cell(self):
+        late = self.cell_at(day=5, time=4)
+        late.mentees.set([self.other])
+
+        response = self.client.get(reverse("timetableunit-list"))
+        self.assertEqual(response.status_code, 200)
+        cells = {cell["id"]: cell for cell in response.json()}
+        self.assertEqual(len(cells), 7 * 4)
+        self.assertEqual(
+            cells.pop(self.cell.id),
+            self.body(self.cell, [self.jigi, self.senior], [self.mentee]),
+        )
+        self.assertEqual(cells.pop(late.id), self.body(late, mentees=[self.other]))
+        for cell in TimetableUnit.objects.exclude(id__in=[self.cell.id, late.id]):
+            self.assertEqual(cells.pop(cell.id), self.body(cell))
