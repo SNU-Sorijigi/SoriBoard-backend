@@ -1,5 +1,7 @@
 import datetime
+from unittest.mock import patch
 
+from django.db import OperationalError
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
@@ -72,3 +74,40 @@ class SwapOrderTests(APITestCase):
             self.listed(),
             [self.first.id, self.second.id, again.id, self.third.id, third_again.id],
         )
+
+    def test_a_play_moves_past_one_with_the_same_order(self):
+        again = self.add_play(2)
+        self.assertEqual(self.swap(self.second, again).status_code, 200)
+        self.assertEqual(
+            self.listed(), [self.first.id, again.id, self.second.id, self.third.id]
+        )
+        # ↑ takes it back.
+        self.assertEqual(self.swap(self.second, again).status_code, 200)
+        self.assertEqual(
+            self.listed(), [self.first.id, self.second.id, again.id, self.third.id]
+        )
+
+    def test_a_tie_above_does_not_misplace_the_move(self):
+        early, late = self.add_play(1), self.add_play(1)
+        # Listed first, early, late, second, third: ↑ on second.
+        self.assertEqual(self.swap(self.second, late).status_code, 200)
+        self.assertEqual(
+            self.listed(),
+            [self.first.id, early.id, self.second.id, late.id, self.third.id],
+        )
+
+    def test_a_failed_swap_changes_neither_play(self):
+        save = TimeMusic.save
+        saved = []
+
+        def fail_the_second_save(play, *args, **kwargs):
+            if saved:
+                raise OperationalError("database is locked")
+            saved.append(play.id)
+            save(play, *args, **kwargs)
+
+        with patch.object(TimeMusic, "save", fail_the_second_save):
+            with self.assertRaises(OperationalError):
+                self.swap(self.first, self.second)
+        self.assertEqual(saved, [self.first.id])
+        self.assertEqual(self.orders(), [1, 2, 3])

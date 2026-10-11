@@ -222,7 +222,7 @@ class TimeInfoDetailSerializer(serializers.ModelSerializer):
                 "music__composer", "music_detail", "conductor", "orchestra"
             )
             .prefetch_related("players")
-            .order_by("order")
+            .order_by("order", "id")  # swaporder/ counts on ties going by id
         )
         return TimeMusicListSerializer(queryset, many=True, read_only=True).data
 

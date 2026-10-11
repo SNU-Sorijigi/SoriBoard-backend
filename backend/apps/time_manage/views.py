@@ -281,22 +281,39 @@ class TimetableAPIView(APIView):
 
 class SwapOrderView(APIView):
     def post(self, request, upper_id, lower_id, *args, **kwargs):
-        try:
-            time_music_upper = TimeMusic.objects.get(id=upper_id)
-            time_music_lower = TimeMusic.objects.get(id=lower_id)
-        except TimeMusic.DoesNotExist:
-            return Response(
-                {
-                    "error": "One or both of the specified TimeMusic instances do not exist."
-                },
-                status=status.HTTP_404_NOT_FOUND,
+        with transaction.atomic():
+            try:
+                time_music_upper = TimeMusic.objects.get(id=upper_id)
+                time_music_lower = TimeMusic.objects.get(id=lower_id)
+            except TimeMusic.DoesNotExist:
+                return Response(
+                    {
+                        "error": "One or both of the specified TimeMusic instances do not exist."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            if time_music_upper.time_id == time_music_lower.time_id:
+                # Plays can share an order (a double-clicked 추가 sends the same
+                # one twice); swapping those would move nothing. Number the
+                # session 1..n in its listed order first.
+                plays = list(
+                    TimeMusic.objects.filter(time_id=time_music_upper.time_id)
+                    .only("order")
+                    .order_by("order", "id")
+                )
+                if len({play.order for play in plays}) < len(plays):
+                    for number, play in enumerate(plays, start=1):
+                        play.order = number
+                    TimeMusic.objects.bulk_update(plays, ["order"])
+                    numbered = {play.id: play.order for play in plays}
+                    time_music_upper.order = numbered[time_music_upper.id]
+                    time_music_lower.order = numbered[time_music_lower.id]
+            time_music_upper.order, time_music_lower.order = (
+                time_music_lower.order,
+                time_music_upper.order,
             )
-        time_music_upper.order, time_music_lower.order = (
-            time_music_lower.order,
-            time_music_upper.order,
-        )
-        time_music_upper.save()
-        time_music_lower.save()
+            time_music_upper.save(update_fields=["order"])
+            time_music_lower.save(update_fields=["order"])
         return Response({"message": "Order swapped successfully."})
 
 
