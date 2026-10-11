@@ -237,9 +237,10 @@ def _semester_date_range(semester_id):
             datetime.date(semester.year, 3, 1),
             datetime.date(semester.year, 8, 31),
         )
+    # 2월 말일은 다음 해 3/1 의 전날(윤년이면 2/29).
     return (
         datetime.date(semester.year, 9, 1),
-        datetime.date(semester.year + 1, 2, 28),
+        datetime.date(semester.year + 1, 3, 1) - datetime.timedelta(days=1),
     )
 
 

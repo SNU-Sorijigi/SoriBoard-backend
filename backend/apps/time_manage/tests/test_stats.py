@@ -306,6 +306,13 @@ class StatsTests(StatsRequests, APITestCase):
         self.assertEqual(result["filters"]["end"], "2025-02-28")
         self.assertEqual(result["total_plays"], 0)
 
+    def test_second_semester_runs_to_february_29_in_leap_years(self):
+        result = self.get("summary", semester_id=self.fall_2023.id)
+        self.assertEqual(result["filters"]["start"], "2023-09-01")
+        self.assertEqual(result["filters"]["end"], "2024-02-29")
+        self.assertEqual(result["total_plays"], 1)
+        self.assertEqual(result["date_start"], "2024-02-29")
+
     def test_user_scope_counts_only_their_sessions(self):
         result = self.get("summary", user_id=self.member.id)
         self.assertEqual(
