@@ -7,6 +7,8 @@ from apps.time_manage.models import Composer, Music, Semester, TimeInfo, TimeMus
 
 
 class MissingObjectTests(APITestCase):
+    """Editing or deleting an id that is gone answers 404, not 500."""
+
     def setUp(self):
         self.semester = Semester.objects.create(
             year=2026, semester_num=2, start_time="09:30:00", end_time="17:40:00"
@@ -19,6 +21,33 @@ class MissingObjectTests(APITestCase):
         self.play = TimeMusic.objects.create(
             time=self.session, music=music, order=1, source="ROON"
         )
+        self.models = {
+            "semester": Semester,
+            "timeinfo": TimeInfo,
+            "timemusic": TimeMusic,
+        }
+
+    def counts(self):
+        return {name: model.objects.count() for name, model in self.models.items()}
+
+    def test_put_and_delete_of_a_missing_or_malformed_id_are_404(self):
+        before = self.counts()
+        for name, model in self.models.items():
+            missing = model.objects.order_by("-id").first().id + 1
+            for pk in [missing, "abc"]:
+                url = reverse(f"{name}-detail", args=[pk])
+                for method in ["put", "delete"]:
+                    with self.subTest(url=url, method=method):
+                        response = getattr(self.client, method)(url, {}, format="json")
+                        self.assertEqual(response.status_code, 404)
+                        self.assertIn("detail", response.json())
+        self.assertEqual(self.counts(), before)
+
+    def test_get_of_a_malformed_id_is_404(self):
+        for name in ["semester", "timeinfo"]:
+            with self.subTest(name=name):
+                response = self.client.get(reverse(f"{name}-detail", args=["abc"]))
+                self.assertEqual(response.status_code, 404)
 
     def test_existing_session_and_play_still_update_and_delete(self):
         response = self.client.put(
@@ -81,3 +110,17 @@ class TimeInfoLookupTests(APITestCase):
         for params in [{}, {"date": "2026-09-07"}, {"time": "2"}, {"date": ""}]:
             with self.subTest(params=params):
                 self.assertEqual(self.lookup(**params).status_code, 400)
+
+    def test_malformed_parameters_are_400_naming_the_parameter(self):
+        for date, time, field in [
+            ("garbage", "2", "date"),
+            ("2026-13-01", "2", "date"),
+            ("2026-02-30", "2", "date"),
+            ("2026-09-07", "abc", "time"),
+            ("2026-09-07", "2.5", "time"),
+            ("2026-09-07", str(2**63), "time"),
+        ]:
+            with self.subTest(date=date, time=time):
+                response = self.lookup(date=date, time=time)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(list(response.json()), [field])

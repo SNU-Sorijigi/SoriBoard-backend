@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 import datetime
 import re
-from django.shortcuts import get_object_or_404
+from rest_framework.generics import get_object_or_404  # 404s a malformed pk too
 from .models import *
 from .serializers import *
 from django.db.models import Count
@@ -59,7 +59,7 @@ class SemesterViewSet(viewsets.ViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def update(self, request, pk=None):
-        semester = Semester.objects.get(pk=pk)
+        semester = get_object_or_404(Semester, pk=pk)
         serializer = SemesterSerializer(semester, data=request.data, partial=True)
         if serializer.is_valid():
             semester = serializer.save()
@@ -67,7 +67,7 @@ class SemesterViewSet(viewsets.ViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def destroy(self, request, pk=None):
-        semester = Semester.objects.get(pk=pk)
+        semester = get_object_or_404(Semester, pk=pk)
         semester.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -95,7 +95,9 @@ class TimeInfoViewSet(viewsets.ViewSet):
         date = request.query_params.get("date")
         time = request.query_params.get("time")
         if date and time:
-            queryset = TimeInfo.objects.filter(date=date, time=time).first()
+            lookup = TimeInfoLookupSerializer(data={"date": date, "time": time})
+            lookup.is_valid(raise_exception=True)
+            queryset = TimeInfo.objects.filter(**lookup.validated_data).first()
             return Response({"id": queryset.id if queryset else None})
         return Response(status=status.HTTP_400_BAD_REQUEST)
 
@@ -128,7 +130,7 @@ class TimeInfoViewSet(viewsets.ViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def update(self, request, pk=None):
-        time_info = TimeInfo.objects.get(pk=pk)
+        time_info = get_object_or_404(TimeInfo, pk=pk)
         data = request.data.copy()
         # Backward-compat: coerce single fields to arrays
         if "user" in data and "users" not in data:
@@ -148,7 +150,7 @@ class TimeInfoViewSet(viewsets.ViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def destroy(self, request, pk=None):
-        time_info = TimeInfo.objects.get(pk=pk)
+        time_info = get_object_or_404(TimeInfo, pk=pk)
         time_info.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -165,7 +167,7 @@ class TimeMusicViewSet(viewsets.ViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def update(self, request, pk=None):
-        time_music = TimeMusic.objects.get(pk=pk)
+        time_music = get_object_or_404(TimeMusic, pk=pk)
         serializer = TimeMusicSerializer(time_music, data=request.data, partial=True)
         if serializer.is_valid():
             time_music = serializer.save()
@@ -173,7 +175,7 @@ class TimeMusicViewSet(viewsets.ViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def destroy(self, request, pk=None):
-        time_music = TimeMusic.objects.get(pk=pk)
+        time_music = get_object_or_404(TimeMusic, pk=pk)
         time_music.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

@@ -139,6 +139,14 @@ class TimeInfoSerializer(serializers.ModelSerializer):
         return first.id if first else None
 
 
+class TimeInfoLookupSerializer(serializers.Serializer):
+    """Query of GET timeinfo/: a malformed date or time is a 400, not a 500."""
+
+    date = serializers.DateField()
+    # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500).
+    time = serializers.IntegerField(min_value=-(2**63), max_value=2**63 - 1)
+
+
 class TimeMusicListSerializer(serializers.ModelSerializer):
     music_title = serializers.CharField(source="music.title", read_only=True)
     music_semi_title = serializers.CharField(
