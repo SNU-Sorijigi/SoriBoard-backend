@@ -16,12 +16,29 @@ from apps.time_manage.models import (
 )
 
 GENRES = ["교향곡", "협주곡", "실내악곡", "독주곡", "기타"]
+ENDPOINTS = [
+    "summary",
+    "composers",
+    "works",
+    "soloists",
+    "conductors",
+    "orchestras",
+    "timeline",
+    "eras",
+    "genres",
+    "diversity",
+]
 
 
 class StatsRequests:
     def get(self, name, **params):
         response = self.client.get(reverse(f"stats-{name}"), params)
         self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    def get_error(self, name, **params):
+        response = self.client.get(reverse(f"stats-{name}"), params)
+        self.assertEqual(response.status_code, 400)
         return response.json()
 
     def counts(self, result):
@@ -306,6 +323,25 @@ class StatsTests(StatsRequests, APITestCase):
         self.assertEqual(result["filters"]["start"], "2024-09-01")
         self.assertEqual(result["filters"]["end"], "2025-02-28")
         self.assertEqual(result["total_plays"], 0)
+
+    def test_malformed_filters_get_400_naming_the_parameter(self):
+        malformed = [
+            ("start", "garbage"),
+            ("start", "2024-13-01"),
+            ("end", "2024-02-30"),
+            ("semester_id", "abc"),
+            ("semester_id", "9" * 20),
+            ("user_id", "abc"),
+            ("user_id", "1.5"),
+            ("user_id", "-" + "9" * 20),
+        ]
+        for name in ENDPOINTS:
+            for param, value in malformed:
+                with self.subTest(endpoint=name, param=param, value=value):
+                    error = self.get_error(name, **{param: value})
+                    self.assertEqual(list(error), [param])
+                    self.assertTrue(error[param])
+        self.assertIn("YYYY-MM-DD", self.get_error("summary", start="3/4")["start"][0])
 
     def test_blank_and_unpadded_filters_still_work(self):
         result = self.get("summary", start="", end="", semester_id="", user_id="")

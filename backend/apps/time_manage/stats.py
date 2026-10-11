@@ -10,6 +10,8 @@ play history = TimeMusic ⨝ TimeInfo. 모든 엔드포인트는 공통 필터(`
         "values": [...],           # labels 와 1:1 대응하는 수치
         "items":  [{id, name, count}, ...]  # drill-down 용 식별자 포함
     }
+
+필터 파라미터 형식이 틀리면 400 과 DRF 필드별 오류(예: {"start": [...]})를 돌려준다.
 """
 
 import datetime
@@ -18,6 +20,7 @@ from collections import defaultdict
 
 from django.db.models import Count, Max, Min, Q
 from django.db.models.functions import TruncMonth, TruncWeek
+from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -244,36 +247,52 @@ def _semester_date_range(semester_id):
     )
 
 
+# id 는 SQLite INTEGER(64비트) 범위여야 한다. 넘으면 DB 드라이버가 OverflowError(500).
+_ID_RANGE = {"min_value": -(2**63), "max_value": 2**63 - 1}
+
+
+class StatsFilterSerializer(serializers.Serializer):
+    """공통 필터 파라미터 검증. 빈 값(?start=)은 지정하지 않은 것으로 본다."""
+
+    start = serializers.DateField(required=False)
+    end = serializers.DateField(required=False)
+    semester_id = serializers.IntegerField(required=False, **_ID_RANGE)
+    user_id = serializers.IntegerField(required=False, **_ID_RANGE)
+
+
 def build_timemusic_filter(params):
     """쿼리 파라미터를 TimeMusic 필터(Q 객체)로 변환.
 
     지원 파라미터: start, end (YYYY-MM-DD), semester_id, user_id, include_mentees.
     적용된 필터 정보를 함께 돌려준다(응답 봉투의 filters 필드).
+    start/end/semester_id/user_id 형식이 틀리면 ValidationError(400)를 던진다.
     """
+    filters = StatsFilterSerializer(data=params)
+    filters.is_valid(raise_exception=True)
     q = Q()
     applied = {"scope": "all"}
 
-    start = params.get("start")
-    end = params.get("end")
-    semester_id = params.get("semester_id")
+    start = filters.validated_data.get("start")
+    end = filters.validated_data.get("end")
+    semester_id = filters.validated_data.get("semester_id")
 
-    if semester_id:
+    if semester_id is not None:
         s_start, s_end = _semester_date_range(semester_id)
         if s_start:
             q &= Q(time__date__gte=s_start, time__date__lte=s_end)
-            applied["semester_id"] = semester_id
+            applied["semester_id"] = str(semester_id)
             applied["start"] = str(s_start)
             applied["end"] = str(s_end)
     else:
         if start:
             q &= Q(time__date__gte=start)
-            applied["start"] = start
+            applied["start"] = str(start)
         if end:
             q &= Q(time__date__lte=end)
-            applied["end"] = end
+            applied["end"] = str(end)
 
-    user_id = params.get("user_id")
-    if user_id:
+    user_id = filters.validated_data.get("user_id")
+    if user_id is not None:
         include_mentees = str(params.get("include_mentees", "")).lower() in (
             "1",
             "true",
@@ -284,7 +303,7 @@ def build_timemusic_filter(params):
         else:
             q &= Q(time__users__id=user_id)
         applied["scope"] = "individual"
-        applied["user_id"] = int(user_id)
+        applied["user_id"] = user_id
         applied["include_mentees"] = include_mentees
 
     return q, applied
