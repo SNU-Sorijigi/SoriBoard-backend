@@ -1,3 +1,6 @@
+from unittest.mock import patch
+
+from django.db import OperationalError
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
@@ -130,3 +133,67 @@ class SemesterTimetableTests(APITestCase):
                 self.assertEqual(self.assertGrid(semester, 4), cells)
                 self.assertEqual(list(cells[5].users.all()), [self.jigi])
                 self.assertEqual(list(cells[5].mentees.all()), [self.mentee])
+
+    def test_a_create_builds_the_cells_in_nine_queries(self):
+        for total_time in (4, 6):
+            with self.subTest(total_time=total_time):
+                Semester.objects.all().delete()
+                # Unique check, savepoint, semester, no timetable yet, timetable,
+                # every cell, the cells read back, table, release.
+                with self.assertNumQueries(9):
+                    response = self.client.post(
+                        reverse("semester-list"),
+                        {**self.create_body, "total_time": total_time},
+                        format="json",
+                    )
+                self.assertEqual(response.status_code, 201)
+                semester = Semester.objects.get(pk=response.json()["id"])
+                self.assertGrid(semester, total_time)
+
+    def test_a_time_count_change_rebuilds_the_cells_in_fifteen_queries(self):
+        semester = self.create_semester()
+        for total_time in (8, 3):
+            with self.subTest(total_time=total_time):
+                # The semester, unique check, savepoint, the saved 타임 count,
+                # timetable, old cells and their 지기/견습 links (4), every new
+                # cell, the cells read back, table, semester, release,
+                # timetable_id.
+                with self.assertNumQueries(15):
+                    response = self.client.put(
+                        reverse("semester-detail", args=[semester.id]),
+                        {**self.edit_body, "total_time": total_time},
+                        format="json",
+                    )
+                self.assertEqual(response.status_code, 200)
+                semester.refresh_from_db()
+                self.assertGrid(semester, total_time)
+
+    def test_a_failed_create_leaves_no_semester_behind(self):
+        locked = OperationalError("database is locked")
+        with patch.object(Timetable, "update_table", side_effect=locked):
+            with self.assertRaises(OperationalError):
+                self.client.post(
+                    reverse("semester-list"), self.create_body, format="json"
+                )
+        self.assertFalse(Semester.objects.exists())
+        self.assertFalse(Timetable.objects.exists())
+        self.assertFalse(TimetableUnit.objects.exists())
+
+    def test_a_failed_time_count_change_keeps_the_old_cells(self):
+        semester = self.create_semester()
+        cells = self.cells(semester)
+        self.assign(cells[5])
+
+        locked = OperationalError("database is locked")
+        with patch.object(Timetable, "update_table", side_effect=locked):
+            with self.assertRaises(OperationalError):
+                self.client.put(
+                    reverse("semester-detail", args=[semester.id]),
+                    {**self.edit_body, "total_time": 5},
+                    format="json",
+                )
+        semester.refresh_from_db()
+        self.assertEqual(semester.total_time, 4)
+        self.assertEqual(self.assertGrid(semester, 4), cells)
+        self.assertEqual(list(cells[5].users.all()), [self.jigi])
+        self.assertEqual(list(cells[5].mentees.all()), [self.mentee])
