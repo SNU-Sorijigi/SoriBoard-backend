@@ -55,7 +55,7 @@ def era_counts(qs):
     rows = qs.values(
         "music__composer__birth_year",
         "music__composer__era_override",
-    ).annotate(count=Count("id"))
+    ).annotate(count=Count("id", distinct=True))
     buckets = {label: 0 for label in ERA_ORDER}
     for row in rows:
         era = era_for(
@@ -293,6 +293,9 @@ def base_queryset(request):
     """필터가 적용된 TimeMusic 쿼리셋과 filters 정보를 반환.
 
     M2M(time__users) 조인 시 중복 행이 생길 수 있어 distinct() 적용.
+    distinct() 는 values().annotate() 그룹 안의 중복 행은 없애지 못하므로
+    그룹별 선곡 수는 Count("id", distinct=True) 로 센다(include_mentees 의
+    users·mentees 조인은 한 곡을 여러 행으로 만든다).
     """
     q, applied = build_timemusic_filter(request.query_params)
     qs = TimeMusic.objects.filter(q).distinct()
@@ -311,7 +314,7 @@ def _top_by(qs, group_field, name_field, limit, id_field=None):
     id_field = id_field or group_field
     rows = (
         qs.values(id_field, name_field)
-        .annotate(count=Count("id"))
+        .annotate(count=Count("id", distinct=True))
         .order_by("-count")[:limit]
     )
     labels, values, items = [], [], []
@@ -382,7 +385,7 @@ class TopWorksStatsView(APIView):
         rows = (
             qs.exclude(music__isnull=True)
             .values("music__id", "music__title", "music__composer__name")
-            .annotate(count=Count("id"))
+            .annotate(count=Count("id", distinct=True))
             .order_by("-count")[:limit]
         )
         labels, values, items = [], [], []
@@ -500,7 +503,7 @@ class PlaysOverTimeStatsView(APIView):
         rows = (
             qs.annotate(period=trunc)
             .values("period")
-            .annotate(count=Count("id"))
+            .annotate(count=Count("id", distinct=True))
             .order_by("period")
         )
 

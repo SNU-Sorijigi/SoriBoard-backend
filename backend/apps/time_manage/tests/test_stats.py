@@ -322,3 +322,29 @@ class StatsTests(StatsRequests, APITestCase):
         result = self.get("summary", user_id=self.mentee.id, include_mentees="true")
         self.assertTrue(result["filters"]["include_mentees"])
         self.assertEqual(result["total_plays"], 5)
+
+    def test_including_mentee_sessions_counts_each_play_once(self):
+        # The 3/4 session has two members and two mentees, so the OR across both
+        # M2M joins returns each of its plays on more than one row.
+        params = {"user_id": self.mentee.id, "include_mentees": "true"}
+        expected = {
+            "composers": {"모차르트": 2, "브람스": 1, "베토벤": 1, "작자 미상": 1},
+            "works": {
+                "모차르트 - 교향곡 제40번": 2,
+                "브람스 - 피아노 협주곡 제2번": 1,
+                "베토벤 - 현악 사중주 제14번": 1,
+                "작자 미상 - 그레고리오 성가": 1,
+            },
+            "conductors": {"카라얀": 2, "번스타인": 1},
+            "orchestras": {"베를린 필하모닉": 2, "빈 필하모닉": 1},
+            "timeline": {"2024-03": 5},
+            "eras": {"고전": 3, "낭만": 1, "미상": 1},
+            "genres": {"교향곡": 2, "협주곡": 1, "실내악곡": 1, "기타": 1},
+        }
+        for name, counts in expected.items():
+            with self.subTest(endpoint=name):
+                result = self.get(name, **params)
+                self.assertEqual(result["total_plays"], 5)
+                self.assertEqual(self.counts(result), counts)
+        self.assertEqual(self.get("eras", **params)["unknown_share"], 0.2)
+        self.assertEqual(self.get("diversity", **params)["total_plays"], 5)
