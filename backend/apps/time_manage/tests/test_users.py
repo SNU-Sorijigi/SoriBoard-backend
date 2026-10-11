@@ -1,5 +1,7 @@
 import datetime
+from unittest import mock
 
+from django.db import OperationalError
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
@@ -203,5 +205,47 @@ class UserDeleteTests(APITestCase):
                 "이사부": "정선배",
                 "김제자": "이사부",
                 "한손제": "김제자",
+            },
+        )
+
+    def test_deleting_a_sabu_keeps_their_jeja_without_a_sabu(self):
+        response = self.delete(self.sabu)
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(
+            self.sabus(),
+            {"정선배": None, "김제자": None, "한손제": "김제자", "최동문": None},
+        )
+        # The 제자 keep their sessions and timetable cells.
+        self.assertEqual(self.names(self.session.users), ["김제자"])
+        self.assertEqual(self.names(self.session.mentees), ["한손제"])
+        self.assertEqual(self.names(self.cell.users), ["김제자"])
+        self.assertEqual(self.names(self.cell.mentees), ["한손제"])
+        response = self.client.get(reverse("user-detail", args=[self.jeja.id]))
+        self.assertEqual(response.json()["sabu_id"], None)
+        self.assertEqual(response.json()["sabu_info"], "")
+
+    def test_deleting_one_of_two_jigis_who_are_each_others_sabu(self):
+        self.ob.sabu_id = self.sabu
+        self.ob.save()
+        response = self.delete(self.ob)
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(
+            self.sabus(),
+            {"이사부": None, "김제자": "이사부", "한손제": "김제자", "최동문": None},
+        )
+
+    def test_a_failed_delete_keeps_every_sabu(self):
+        locked = OperationalError("database is locked")
+        with mock.patch.object(User, "delete", side_effect=locked):
+            with self.assertRaises(OperationalError):
+                self.delete(self.sabu)
+        self.assertEqual(
+            self.sabus(),
+            {
+                "정선배": None,
+                "이사부": "정선배",
+                "김제자": "이사부",
+                "한손제": "김제자",
+                "최동문": None,
             },
         )

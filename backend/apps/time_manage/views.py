@@ -6,6 +6,7 @@ import re
 from rest_framework.generics import get_object_or_404  # 404s a malformed pk too
 from .models import *
 from .serializers import *
+from django.db import transaction
 from django.db.models import Count
 
 _CATALOG_PATTERNS = [
@@ -38,6 +39,13 @@ class UserViewSet(viewsets.ModelViewSet):
     # sabu_info spells out each user's 사부.
     queryset = User.objects.select_related("sabu_id")
     serializer_class = UserSerializer
+
+    def perform_destroy(self, instance):
+        # sabu_id cascades, so deleting a 사부 deleted every 제자 below them
+        # (and their places in sessions). Keep the 제자, without a 사부.
+        with transaction.atomic():
+            instance.jejas.update(sabu_id=None)
+            instance.delete()
 
 
 class SemesterViewSet(viewsets.ViewSet):
