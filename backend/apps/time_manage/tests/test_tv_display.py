@@ -1,4 +1,5 @@
 import datetime
+import json
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -32,6 +33,13 @@ DISPLAY_SIZES = {
     "spacerSize4": 0.28125,
     "spacerSize5": 0.5,
 }
+# What the session page (musicinfo.svelte) sends after each "show on TV":
+# the sizes from before the TV showed news.
+SESSION_PAGE_SIZES = {
+    key: value
+    for key, value in DISPLAY_SIZES.items()
+    if key not in ("infoNewsFontSize", "instagramFontSize", "spacerSize5")
+}
 BREAK = {"update_type": "breaktime", "breaktime": "~15:20"}
 BREAK_SHOWN = {"type": "update_tv", "update_type": "breaktime", "info": "~15:20"}
 
@@ -59,6 +67,9 @@ class TvDisplayTests(TestCase):
         self.play.players.add(
             Player.objects.create(instrument="바이올린", name="정경화")
         )
+        deleted = TimeMusic.objects.create(time=session, order=2, source="LP")
+        self.deleted_id = deleted.id
+        deleted.delete()
         # The in-memory channel layer outlives a test: start the next one empty.
         self.addCleanup(async_to_sync(get_channel_layer().flush))
 
@@ -114,3 +125,48 @@ class TvDisplayTests(TestCase):
         self.assertTrue(await tv.receive_nothing())
         await tv.disconnect()
         await settings.disconnect()
+
+    async def test_show_on_tv_works_again_after_the_session_pages_size_update(self):
+        tv = await self.connect()
+        # Each play row on the session page opens its own socket.
+        row = await self.connect()
+        for _ in range(2):
+            await row.send_json_to(self.show(self.play.id))
+            await row.send_json_to(SESSION_PAGE_SIZES)
+            self.assertEqual((await tv.receive_json_from())["info"]["id"], self.play.id)
+            self.assertEqual((await row.receive_json_from())["update_type"], "music")
+            # The TV applies every size it gets, so an incomplete update is dropped.
+            self.assertTrue(await tv.receive_nothing())
+        await tv.disconnect()
+        await row.disconnect()
+
+    async def test_a_message_the_tv_cannot_use_is_dropped_and_the_socket_stays_open(
+        self,
+    ):
+        messages = {
+            "no update type": {"breaktime": "~15:20"},
+            "no play id": {"update_type": "music"},
+            "a deleted play": self.show(self.deleted_id),
+            "a malformed play id": self.show("abc"),
+            "a play id past 2**63": self.show(2**64),
+            "no break time": {"update_type": "breaktime"},
+            "a size update without every size": SESSION_PAGE_SIZES,
+        }
+        frames = {
+            **{name: {"text_data": json.dumps(m)} for name, m in messages.items()},
+            "not JSON": {"text_data": "music"},
+            "not a JSON object": {"text_data": '["music"]'},
+            "a binary frame": {"bytes_data": b'{"update_type": "music"}'},
+        }
+        tv = await self.connect()
+        for name, frame in frames.items():
+            with self.subTest(name):
+                sender = await self.connect()
+                await sender.send_to(**frame)
+                self.assertTrue(await tv.receive_nothing())
+                # The sender's socket still works.
+                await sender.send_json_to(BREAK)
+                self.assertEqual(await tv.receive_json_from(), BREAK_SHOWN)
+                self.assertEqual(await sender.receive_json_from(), BREAK_SHOWN)
+                await sender.disconnect()
+        await tv.disconnect()
