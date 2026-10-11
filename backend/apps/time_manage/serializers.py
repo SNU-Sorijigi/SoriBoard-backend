@@ -97,9 +97,18 @@ class SemesterUserSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class BlankAsNullTimeField(serializers.TimeField):
+    """A cleared time input sends "": read it as no time, as DRF does for forms."""
+
+    def validate_empty_values(self, data):
+        return super().validate_empty_values(None if data == "" else data)
+
+
 class TimeInfoSerializer(serializers.ModelSerializer):
     jigi_info = serializers.SerializerMethodField()
     mentee_info = serializers.SerializerMethodField()
+    # The session forms send "" when no 견습 arrival time is entered.
+    mentee_arrival_time = BlankAsNullTimeField(allow_null=True, required=False)
     # Backward-compat single fields
     user = serializers.SerializerMethodField()
     mentee = serializers.SerializerMethodField()

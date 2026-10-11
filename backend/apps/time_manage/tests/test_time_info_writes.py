@@ -149,6 +149,30 @@ class TimeInfoWriteTests(APITestCase):
         self.assertIsNone(response.json()["mentee_arrival_time"])
         self.assertIsNone(self.saved(self.session.id)["mentee_arrival_time"])
 
+    def test_create_with_a_blank_mentee_arrival_time(self):
+        # 타임 생성 with the 견습 time cleared.
+        response = self.create(mentees=[], mentee_arrival_time="")
+        self.assertEqual(response.status_code, 201)
+        self.assertIsNone(self.saved(response.json()["id"])["mentee_arrival_time"])
+
+    def test_edit_of_a_session_without_a_mentee_arrival_time(self):
+        # The edit form loads null as "" and sends it back with every edit.
+        TimeInfo.objects.filter(pk=self.session.pk).update(mentee_arrival_time=None)
+        response = self.edit(users=[self.senior.id], mentee_arrival_time="")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["mentee_arrival_time"])
+        saved = self.saved(self.session.id)
+        self.assertEqual(saved["users"], [self.senior.id])
+        self.assertIsNone(saved["mentee_arrival_time"])
+
+    def test_edit_with_a_blank_mentee_arrival_time_clears_it(self):
+        response = self.edit(mentees=[], mentee_arrival_time="")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["mentee_arrival_time"])
+        saved = self.saved(self.session.id)
+        self.assertEqual(saved["mentees"], [])
+        self.assertIsNone(saved["mentee_arrival_time"])
+
     def test_malformed_times_are_400_and_save_nothing(self):
         before = self.saved(self.session.id)
         cases = [
