@@ -1,7 +1,9 @@
+import datetime
+
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
-from apps.time_manage.models import User
+from apps.time_manage.models import Semester, TimeInfo, TimetableUnit, User
 
 
 class UserReadTests(APITestCase):
@@ -106,3 +108,100 @@ class UserReadTests(APITestCase):
                 format="json",
             )
         self.assertEqual(response.json()["sabu_info"], "이사부 물리학과 20")
+
+
+class UserDeleteTests(APITestCase):
+    """지기 설정 deletes a 지기 with one confirm, then DELETE user/<id>/."""
+
+    def setUp(self):
+        self.ob = User.objects.create(
+            name="정선배", major="국문과", year_id="16", is_ob=True, join_year=2016
+        )
+        self.sabu = User.objects.create(
+            name="이사부",
+            major="물리학과",
+            year_id="20",
+            join_year=2020,
+            sabu_id=self.ob,
+        )
+        self.jeja = User.objects.create(
+            name="김제자",
+            major="음악학과",
+            year_id="22",
+            join_year=2022,
+            sabu_id=self.sabu,
+        )
+        self.grandjeja = User.objects.create(
+            name="한손제",
+            major="작곡과",
+            year_id="24",
+            join_year=2024,
+            sabu_id=self.jeja,
+        )
+        self.loner = User.objects.create(
+            name="최동문", major="경제학부", year_id="23", join_year=2023
+        )
+        self.session = TimeInfo.objects.create(
+            time=2, date=datetime.date(2026, 3, 4), arrival_time="11:00:00"
+        )
+        self.session.users.set([self.sabu, self.jeja])
+        self.session.mentees.set([self.grandjeja])
+        semester = Semester.objects.create(
+            year=2026,
+            semester_num=1,
+            total_time=4,
+            start_time="09:30:00",
+            end_time="17:40:00",
+        )
+        self.cell = TimetableUnit.objects.get(
+            timetable=semester.timetable, day=2, time=2
+        )
+        self.cell.users.set([self.jeja])
+        self.cell.mentees.set([self.grandjeja])
+
+    def delete(self, user):
+        return self.client.delete(reverse("user-detail", args=[user.id]))
+
+    def sabus(self):
+        """Each remaining 지기's name → their 사부's name (None without one)."""
+        return {
+            user.name: user.sabu_id.name if user.sabu_id else None
+            for user in User.objects.select_related("sabu_id")
+        }
+
+    def names(self, users):
+        return sorted(users.values_list("name", flat=True))
+
+    def test_deleting_a_jigi_without_jeja_deletes_only_them(self):
+        response = self.delete(self.grandjeja)
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(
+            self.sabus(),
+            {"정선배": None, "이사부": "정선배", "김제자": "이사부", "최동문": None},
+        )
+        # They leave the sessions and cells they were in; the others stay.
+        self.assertEqual(self.names(self.session.users), ["김제자", "이사부"])
+        self.assertEqual(self.names(self.session.mentees), [])
+        self.assertEqual(self.names(self.cell.users), ["김제자"])
+        self.assertEqual(self.names(self.cell.mentees), [])
+
+    def test_deleting_a_missing_jigi_is_a_404(self):
+        response = self.client.delete(reverse("user-detail", args=[999999]))
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(User.objects.count(), 5)
+
+    def test_a_jigi_who_is_their_own_sabu_can_be_deleted(self):
+        # The 사부 picker of the edit form lists every 지기, the one edited too.
+        self.loner.sabu_id = self.loner
+        self.loner.save()
+        response = self.delete(self.loner)
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(
+            self.sabus(),
+            {
+                "정선배": None,
+                "이사부": "정선배",
+                "김제자": "이사부",
+                "한손제": "김제자",
+            },
+        )
