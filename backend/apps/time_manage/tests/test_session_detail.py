@@ -150,3 +150,24 @@ class SessionDetailTests(APITestCase):
         )
         self.assertEqual([body["jigi_info"], body["mentee_info"]], [[], []])
         self.assertEqual(body["time_music"], [])
+
+    def test_reads_the_session_in_five_queries_however_many_plays(self):
+        # The session, its 지기, its 견습, the plays with what they name, players.
+        with self.assertNumQueries(5):
+            self.assertEqual(self.get().status_code, 200)
+
+        conductor = Conductor.objects.create(name="정명훈")
+        for order in range(4, 24):
+            play = TimeMusic.objects.create(
+                time=self.session,
+                order=order,
+                source="CD",
+                music=self.movement.music,
+                music_detail=self.movement.music_detail,
+                conductor=conductor,
+                orchestra=self.movement.orchestra,
+            )
+            play.players.add(*Player.objects.all())
+        with self.assertNumQueries(5):
+            response = self.get()
+        self.assertEqual(len(response.json()["time_music"]), 23)

@@ -207,7 +207,14 @@ class TimeInfoDetailSerializer(serializers.ModelSerializer):
         ]
 
     def get_time_music(self, obj):
-        queryset = obj.timeplaylist.all().order_by("order")
+        # Everything TimeMusicListSerializer reads, in two queries, not ~5 per play.
+        queryset = (
+            obj.timeplaylist.select_related(
+                "music__composer", "music_detail", "conductor", "orchestra"
+            )
+            .prefetch_related("players")
+            .order_by("order")
+        )
         return TimeMusicListSerializer(queryset, many=True, read_only=True).data
 
     def get_jigi_info(self, obj):

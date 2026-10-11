@@ -102,7 +102,8 @@ class TimeInfoViewSet(viewsets.ViewSet):
         return Response(status=status.HTTP_400_BAD_REQUEST)
 
     def retrieve(self, request, pk=None):
-        queryset = TimeInfo.objects.all()
+        # users and mentees are each read three ways by the serializer.
+        queryset = TimeInfo.objects.prefetch_related("users", "mentees")
         timeinfo = get_object_or_404(queryset, pk=pk)
         serializer = TimeInfoDetailSerializer(timeinfo)
         return Response(serializer.data)
