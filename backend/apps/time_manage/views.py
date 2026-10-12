@@ -137,14 +137,8 @@ class TimeInfoViewSet(viewsets.ViewSet):
             data["mentees"] = [m] if m else []
         serializer = TimeInfoSerializer(data=data)
         if serializer.is_valid():
+            # Saves users/mentees too, from the validated ids.
             instance = serializer.save()
-            # Attach users/mentees if provided
-            users = data.get("users", [])
-            mentees = data.get("mentees", [])
-            if users:
-                instance.users.set(users)
-            if mentees:
-                instance.mentees.set(mentees)
             return Response({"id": instance.id}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -160,11 +154,8 @@ class TimeInfoViewSet(viewsets.ViewSet):
             data["mentees"] = [m] if m else []
         serializer = TimeInfoSerializer(time_info, data=data, partial=True)
         if serializer.is_valid():
+            # Saves users/mentees too, from the validated ids.
             time_info = serializer.save()
-            if "users" in data:
-                time_info.users.set(data.get("users", []))
-            if "mentees" in data:
-                time_info.mentees.set(data.get("mentees", []))
             return Response(TimeInfoSerializer(time_info).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

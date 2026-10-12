@@ -143,6 +143,42 @@ class TimeInfoWriteTests(APITestCase):
             },
         )
 
+    def test_create_and_edit_save_the_jigi_and_mentees_once(self):
+        # The serializer saves them; the view used to set them again.
+        with self.assertNumQueries(9):
+            response = self.create()
+        self.assertEqual(response.status_code, 201)
+        with self.assertNumQueries(15):
+            response = self.edit(users=[self.jigi.id, self.senior.id], mentees=[])
+        self.assertEqual(response.status_code, 200)
+        saved = self.saved(self.session.id)
+        self.assertEqual(saved["users"], [self.jigi.id, self.senior.id])
+        self.assertEqual(saved["mentees"], [])
+
+    def test_form_encoded_writes_keep_every_jigi_and_mentee(self):
+        # The second set read the raw form, where a repeated field gives its
+        # last value as a string: only the last 지기/견습 was kept.
+        both = [self.jigi.id, self.senior.id]
+        body = {
+            "date": "2026-09-08",
+            "time": 1,
+            "users": both,
+            "mentees": both,
+            "arrival_time": "09:30",
+        }
+        response = self.client.post(reverse("timeinfo-list"), body, format="multipart")
+        self.assertEqual(response.status_code, 201)
+        saved = self.saved(response.json()["id"])
+        self.assertEqual((saved["users"], saved["mentees"]), (both, both))
+
+        url = reverse("timeinfo-detail", args=[self.session.id])
+        body.update(date="2026-09-07", time=2)
+        response = self.client.put(url, body, format="multipart")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(sorted(response.json()["users"]), both)
+        saved = self.saved(self.session.id)
+        self.assertEqual((saved["users"], saved["mentees"]), (both, both))
+
     def test_edit_with_null_clears_the_mentee_arrival_time(self):
         response = self.edit(mentees=[], mentee_arrival_time=None)
         self.assertEqual(response.status_code, 200)
