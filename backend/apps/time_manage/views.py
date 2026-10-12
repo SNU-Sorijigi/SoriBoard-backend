@@ -33,12 +33,12 @@ class SQLiteIdMixin:
 _CATALOG_PATTERNS = [
     # Op. 55, Op. 55 No. 1, and Op.55-1 (Korean listings' short form of No. 1)
     r"Op\.?\s*\d+(?:\s*,?\s*No\.?\s*\d+|-\d+\b)?",
-    r"BWV\s*\d+[a-z]?",  # BWV 147, BWV 147a
+    r"BWV\.?\s*\d+[a-z]?",  # BWV 147, BWV.147, BWV 147a
     r"\bD[.\s]\s*\d{3,}\b",  # D. 960 (Schubert, ≥3 digits)
     r"\bKV?\.?\s*\d+\b",  # K. 550, KV 550 (Mozart)
     r"WoO\.?\s*\d+",  # WoO 80 (Beethoven)
     r"\bZ\.?\s*\d+\b",  # Z. 340 (Purcell)
-    r"HWV\s*\d+",  # HWV 56 (Handel)
+    r"HWV\.?\s*\d+",  # HWV 56, HWV.56 (Handel)
 ]
 
 

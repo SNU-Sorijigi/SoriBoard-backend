@@ -72,6 +72,21 @@ class CheckDuplicateTests(APITestCase):
             ("모차르트", "교향곡 제41번 KV 551", "Symphony No. 41 K551", "k551"),
             ("베토벤", "안단테 파보리 WoO. 57", "Andante favori WoO 57", "woo57"),
             ("퍼셀", "디도와 에네아스 Z. 626", "Dido and Aeneas Z 626", "z626"),
+            # Korean listings also write BWV.1007 and HWV.56; they were missed.
+            (
+                "바흐",
+                "무반주 첼로 모음곡 1번 BWV.1007",
+                "Cello Suite BWV 1007",
+                "bwv1007",
+            ),
+            (
+                "바흐",
+                "무반주 첼로 모음곡 BWV 1008",
+                "첼로 모음곡 BWV. 1008",
+                "bwv.1008",
+            ),
+            ("헨델", "메시아 HWV 56", "메시아 HWV.56", "hwv.56"),
+            ("헨델", "수상 음악 HWV. 349", "Water Music HWV349", "hwv349"),
         ):
             with self.subTest(title=title):
                 self.play(played, composer_name)
@@ -85,6 +100,8 @@ class CheckDuplicateTests(APITestCase):
             ("쇼팽", "Op. 92"),
             ("쇼팽", "Op. 9 No. 1"),
             ("모차르트", "KV 55"),
+            ("바흐", "BWV.100"),
+            ("헨델", "HWV.5"),
         ):
             with self.subTest(title=title):
                 self.assertEqual(self.duplicates(title, composer_name), [])
