@@ -330,8 +330,11 @@ class MusicViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = MusicSerializer
 
     def get_queryset(self):
-        return Music.objects.annotate(num_time_music=Count("timemusic")).order_by(
-            "-num_time_music"
+        # Each music shows its composer's name: one query, not one per music.
+        return (
+            Music.objects.select_related("composer")
+            .annotate(num_time_music=Count("timemusic"))
+            .order_by("-num_time_music")
         )
 
 
@@ -342,6 +345,7 @@ class MusicByComposerViewSet(viewsets.ReadOnlyModelViewSet):
         composer_id = self.kwargs["composer_id"]
         return (
             Music.objects.filter(composer__id=composer_id)
+            .select_related("composer")
             .annotate(num_time_music=Count("timemusic"))
             .order_by("-num_time_music")
         )

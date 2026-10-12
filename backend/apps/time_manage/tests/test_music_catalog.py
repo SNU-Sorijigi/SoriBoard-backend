@@ -112,3 +112,24 @@ class MusicCatalogTests(APITestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
+
+    def test_reads_each_list_in_one_query_however_many_musics(self):
+        # Each music shows its composer's name: one SELECT per music before.
+        urls = [
+            reverse("composerlist-list"),
+            reverse("musiclist-list"),
+            reverse("music-by-composer-list", args=[self.beethoven.id]),
+        ]
+        for url in urls:
+            with self.subTest(url=url), self.assertNumQueries(1):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+        for number in range(20):
+            composer = Composer.objects.create(name=f"작곡가 {number}")
+            self.music(composer, f"소품 {number}", 1)
+            self.music(self.beethoven, f"바가텔 {number}", 1)
+        for url in urls:
+            with self.subTest(url=url), self.assertNumQueries(1):
+                self.assertEqual(self.client.get(url).status_code, 200)
+        self.assertEqual(len(self.client.get(urls[1]).json()), 44)
+        self.assertEqual(len(self.client.get(urls[2]).json()), 22)
