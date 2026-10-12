@@ -271,3 +271,20 @@ class TimeInfoWriteTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["time"], 0)
         self.assertEqual(self.saved(self.session.id)["time_comment_music"], "음량")
+
+    def test_a_body_that_is_not_an_object_is_400_and_saves_nothing(self):
+        # The legacy user/mentee step copied the body first: a string, number,
+        # null or list raised AttributeError (500). Other write routes say 400.
+        before = self.saved(self.session.id)
+        edit_url = reverse("timeinfo-detail", args=[self.session.id])
+        bodies = ['"x"', "5", "1.5", "true", "null", "[]", '["user"]', '["mentee"]']
+        for method, url in [("POST", reverse("timeinfo-list")), ("PUT", edit_url)]:
+            for body in bodies:
+                with self.subTest(method=method, body=body):
+                    response = self.client.generic(
+                        method, url, body, content_type="application/json"
+                    )
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(list(response.json()), ["non_field_errors"])
+        self.assertEqual(TimeInfo.objects.count(), 1)
+        self.assertEqual(self.saved(self.session.id), before)

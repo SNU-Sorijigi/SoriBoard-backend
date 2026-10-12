@@ -1,6 +1,7 @@
 from rest_framework import generics, viewsets, status, serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from collections.abc import Mapping
 import datetime
 import re
 from .models import *
@@ -147,6 +148,23 @@ class TimetableUnitViewSet(SQLiteIdMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
+def with_legacy_single_fields(data):
+    """A session write's body, with the legacy single user and mentee as lists."""
+    # A body that is not a JSON object goes to the serializer as it is, which
+    # refuses it with 400; copying it here raised AttributeError (500).
+    if not isinstance(data, Mapping):
+        return data
+    data = data.copy()
+    # Backward-compat: coerce single fields to arrays
+    if "user" in data and "users" not in data:
+        u = data.get("user")
+        data["users"] = [u] if u else []
+    if "mentee" in data and "mentees" not in data:
+        m = data.get("mentee")
+        data["mentees"] = [m] if m else []
+    return data
+
+
 class TimeInfoViewSet(viewsets.ViewSet):
     def list(self, request):
         date = request.query_params.get("date")
@@ -166,14 +184,7 @@ class TimeInfoViewSet(viewsets.ViewSet):
         return Response(serializer.data)
 
     def create(self, request):
-        data = request.data.copy()
-        # Backward-compat: coerce single fields to arrays
-        if "user" in data and "users" not in data:
-            u = data.get("user")
-            data["users"] = [u] if u else []
-        if "mentee" in data and "mentees" not in data:
-            m = data.get("mentee")
-            data["mentees"] = [m] if m else []
+        data = with_legacy_single_fields(request.data)
         serializer = TimeInfoSerializer(data=data)
         if serializer.is_valid():
             # Saves users/mentees too, from the validated ids.
@@ -183,14 +194,7 @@ class TimeInfoViewSet(viewsets.ViewSet):
 
     def update(self, request, pk=None):
         time_info = get_object_or_404(TimeInfo, pk=pk)
-        data = request.data.copy()
-        # Backward-compat: coerce single fields to arrays
-        if "user" in data and "users" not in data:
-            u = data.get("user")
-            data["users"] = [u] if u else []
-        if "mentee" in data and "mentees" not in data:
-            m = data.get("mentee")
-            data["mentees"] = [m] if m else []
+        data = with_legacy_single_fields(request.data)
         serializer = TimeInfoSerializer(time_info, data=data, partial=True)
         if serializer.is_valid():
             # Saves users/mentees too, from the validated ids.
