@@ -41,6 +41,20 @@ class CheckSemesterTests(APITestCase):
         self.assertRedirects(response, url, status_code=301)
         self.assertEqual(self.client.get(url).json(), [spring.id, None])
 
+    def test_reads_both_semesters_in_one_query(self):
+        spring = semester(2026, 1)
+        fall = semester(2026, 2)
+        with self.assertNumQueries(1):
+            self.assertEqual(self.check(2026), [spring.id, fall.id])
+
+    def test_a_year_past_sqlites_integers_has_no_semesters(self):
+        # SQLite stores 64-bit integers; binding a bigger year was a 500.
+        semester(2026, 1)
+        self.assertEqual(self.check(2**63 - 1), [None, None])
+        for year in [2**63, 10**30]:
+            with self.subTest(year=year), self.assertNumQueries(0):
+                self.assertEqual(self.check(year), [None, None])
+
 
 class SemesterBoundsTests(APITestCase):
     """A semester is the 1st or 2nd of a year, with at least one 타임 a day.

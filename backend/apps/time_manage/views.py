@@ -209,21 +209,18 @@ class TimeMusicViewSet(viewsets.ViewSet):
 
 class CheckSemesterInfoAPIView(APIView):
     def get(self, request, year):
-        # serializer = SemesterSerializer(semester, many=True)
-        # return Response(serializer.data)
+        # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500);
+        # no semester can have such a year.
+        if year > 2**63 - 1:
+            return Response([None, None])
 
-        semester_status = []
-        for sem in [1, 2]:
-            try:
-                semester = Semester.objects.get(year=year, semester_num=sem)
-                if semester:
-                    semester_status.append(semester.id)
-                else:
-                    semester_status.append(None)
-            except Semester.DoesNotExist:
-                semester_status.append(None)
-
-        return Response(semester_status)
+        # Both semesters in one query; (year, semester_num) is unique.
+        semester_ids = dict(
+            Semester.objects.filter(year=year, semester_num__in=[1, 2]).values_list(
+                "semester_num", "id"
+            )
+        )
+        return Response([semester_ids.get(sem) for sem in [1, 2]])
 
 
 class CheckTimeInfoAPIView(APIView):
