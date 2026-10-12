@@ -103,9 +103,25 @@ class TimetableUnitViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action in ("list", "retrieve"):
             # A cell shows its 지기 and 견습 twice: as ids and as info.
-            # Writes skip this: DRF drops the prefetch before answering.
+            # Writes prefetch after saving instead (below).
             queryset = queryset.prefetch_related("users", "mentees")
         return queryset
+
+    def perform_create(self, serializer):
+        cell = serializer.save()
+        # The answer shows the 지기 and 견습 twice too: 2 queries, not 4.
+        prefetch_related_objects([cell], "users", "mentees")
+
+    def update(self, request, *args, **kwargs):
+        # DRF's update() would drop a prefetch made in perform_update().
+        partial = kwargs.pop("partial", False)
+        serializer = self.get_serializer(
+            self.get_object(), data=request.data, partial=partial
+        )
+        serializer.is_valid(raise_exception=True)
+        cell = serializer.save()
+        prefetch_related_objects([cell], "users", "mentees")
+        return Response(serializer.data)
 
 
 class TimeInfoViewSet(viewsets.ViewSet):

@@ -313,3 +313,36 @@ class TimetableUnitTests(APITestCase):
             response = self.client.get(reverse("timetableunit-list"))
         self.assertEqual(len(response.json()), 7 * 4)
         self.assertEqual(sum(len(cell["users"]) for cell in response.json()), 32)
+
+    def test_an_edit_or_new_cell_answers_with_its_jigis_and_mentees_read_once(self):
+        # Reading the cell, its timetable, each sent 지기 and 견습 (3), the slot
+        # check, the semester, saving it, rewriting the table (2), setting the
+        # 지기 (3) and 견습 (1), then one read each for the answer (2).
+        url = reverse("timetableunit-detail", args=[self.cell.id])
+        edit = {"day": 1, "time": 2, "timetable": self.timetable.id}
+        with self.assertNumQueries(16):
+            response = self.client.put(
+                url,
+                {
+                    **edit,
+                    "users": [self.jigi.id, self.other.id],
+                    "mentees": [self.mentee.id],
+                },
+                format="json",
+            )
+        changed = self.body(self.cell, [self.other, self.jigi], [self.mentee])
+        self.assertEqual(response.json(), changed)
+        self.assertEqual(self.client.get(url).json(), changed)
+
+        gone = self.cell_at(day=3, time=4)
+        gone.delete()
+        # No cell to read, one 지기 to check, one to add, no 견습.
+        with self.assertNumQueries(12):
+            response = self.client.post(
+                reverse("timetableunit-list"),
+                {**edit, "day": 3, "time": 4, "users": [self.other.id], "mentees": []},
+                format="json",
+            )
+        self.assertEqual(response.status_code, 201)
+        added = self.cell_at(day=3, time=4)
+        self.assertEqual(response.json(), self.body(added, [self.other]))
