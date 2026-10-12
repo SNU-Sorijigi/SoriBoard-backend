@@ -1,12 +1,17 @@
 import datetime
+from unittest import mock
 
+from django.db import DatabaseError
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
+from apps.time_manage import serializers
 from apps.time_manage.models import (
     Composer,
     Conductor,
     Music,
+    MusicDetail,
+    Orchestra,
     Player,
     TimeInfo,
     TimeMusic,
@@ -201,17 +206,67 @@ class TimeMusicWriteTests(APITestCase):
                 self.assertIsNone(TimeMusic.objects.get(pk=self.play.pk).conductor)
 
     def test_a_write_that_fails_halfway_saves_nothing(self):
-        # Two rows for one player (from the admin, say) make get_or_create
-        # fail after the play itself was written.
-        Player.objects.create(instrument="첼로", name="요요 마")
-        Player.objects.create(instrument="첼로", name="요요 마")
+        # The player's row fails after the play itself was written.
+        first_or_create = serializers.first_or_create
+
+        def failing_for_players(model, **fields):
+            if model is Player:
+                raise DatabaseError("player row failed")
+            return first_or_create(model, **fields)
+
         before = self.snapshot(), self.counts()
         for request in [self.add, self.edit]:
-            with self.subTest(request=request.__name__):
-                with self.assertRaises(Player.MultipleObjectsReturned):
+            with self.subTest(request=request.__name__), mock.patch.object(
+                serializers, "first_or_create", failing_for_players
+            ):
+                with self.assertRaises(DatabaseError):
                     request(
                         composer_name="새 작곡가",
                         conductor_name="지휘: 카를로스 클라이버",
                         player_names=["첼로: 요요 마"],
                     )
                 self.assertEqual((self.snapshot(), self.counts()), before)
+
+    def test_a_name_on_two_rows_is_read_as_the_oldest(self):
+        # Names are not unique: the admin can add a second composer, music,
+        # conductor, orchestra or player of the same name. get_or_create then
+        # raised MultipleObjectsReturned (500) for every play naming it.
+        composer = self.play.music.composer
+        Composer.objects.create(name=composer.name)
+        music = Music.objects.create(composer=composer, title="교향곡 제5번 Op. 67")
+        Music.objects.create(composer=composer, title=music.title)
+        detail = MusicDetail.objects.create(music=music, semi_title="운명")
+        MusicDetail.objects.create(music=music, semi_title="운명")
+        rows = {}
+        for model, fields in [
+            (Conductor, {"name": "카를로스 클라이버"}),
+            (Orchestra, {"name": "빈 필하모닉"}),
+            (Player, {"instrument": "첼로", "name": "요요 마"}),
+        ]:
+            rows[model] = model.objects.create(**fields)
+            model.objects.create(**fields)
+        models = (Composer, Music, MusicDetail, Conductor, Orchestra, Player)
+        before = [m.objects.count() for m in models]
+
+        body = {
+            "title": music.title,
+            "semi_title": "운명",
+            "orchestra_name": "빈 필하모닉",
+            "player_names": ["첼로: 요요 마"],
+        }
+        for request, conductor, status in [
+            (self.add, "카를로스 클라이버", 201),
+            (self.edit, "지휘: 카를로스 클라이버", 200),
+        ]:
+            with self.subTest(request=request.__name__):
+                response = request(conductor_name=conductor, **body)
+                self.assertEqual(response.status_code, status)
+                play = TimeMusic.objects.get(pk=response.json()["id"])
+                self.assertEqual(
+                    (play.music, play.music.composer, play.music_detail),
+                    (music, composer, detail),
+                )
+                self.assertEqual(play.conductor, rows[Conductor])
+                self.assertEqual(play.orchestra, rows[Orchestra])
+                self.assertEqual(list(play.players.all()), [rows[Player]])
+                self.assertEqual([m.objects.count() for m in models], before)

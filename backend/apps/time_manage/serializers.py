@@ -317,6 +317,17 @@ class TimeInfoDetailSerializer(serializers.ModelSerializer):
         return first.id if first else None
 
 
+def first_or_create(model, **fields):
+    """The oldest row with these fields, or a new one.
+
+    Names are not unique (the admin can add a second "모차르트"), and
+    get_or_create() raised MultipleObjectsReturned (500) for every play that
+    named a duplicated composer, music, detail, conductor, orchestra or player.
+    """
+    row = model.objects.filter(**fields).order_by("id").first()
+    return row if row is not None else model.objects.create(**fields)
+
+
 class TimeMusicSerializer(serializers.ModelSerializer):
     serializer_related_field = SQLitePrimaryKeyRelatedField
     title = serializers.CharField(write_only=True)
@@ -380,29 +391,25 @@ class TimeMusicSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         composer_name = validated_data.pop("composer_name", "")
-        composer, _ = Composer.objects.get_or_create(name=composer_name)
+        composer = first_or_create(Composer, name=composer_name)
 
         conductor_name = validated_data.pop("conductor_name", "")
-        conductor, _ = (
-            Conductor.objects.get_or_create(name=conductor_name)
-            if conductor_name
-            else (None, False)
+        conductor = (
+            first_or_create(Conductor, name=conductor_name) if conductor_name else None
         )
 
         orchestra_name = validated_data.pop("orchestra_name", "")
-        orchestra, _ = (
-            Orchestra.objects.get_or_create(name=orchestra_name)
-            if orchestra_name
-            else (None, False)
+        orchestra = (
+            first_or_create(Orchestra, name=orchestra_name) if orchestra_name else None
         )
 
         title = validated_data.pop("title")
         semi_title = validated_data.pop("semi_title", None)
-        music, _ = Music.objects.get_or_create(title=title, composer=composer)
-        music_detail, _ = (
-            MusicDetail.objects.get_or_create(music=music, semi_title=semi_title)
+        music = first_or_create(Music, title=title, composer=composer)
+        music_detail = (
+            first_or_create(MusicDetail, music=music, semi_title=semi_title)
             if semi_title
-            else (None, False)
+            else None
         )
 
         player_names = validated_data.pop("player_names", [])
@@ -418,8 +425,8 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         for player_name in player_names:
             if player_name:
                 instrument, name = player_name.split(": ")
-                player, _ = Player.objects.get_or_create(
-                    instrument=instrument.strip(), name=name.strip()
+                player = first_or_create(
+                    Player, instrument=instrument.strip(), name=name.strip()
                 )
                 time_music.players.add(player)
 
@@ -434,26 +441,26 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         conductor_name = validated_data.pop("conductor_name", None)
         orchestra_name = validated_data.pop("orchestra_name", None)
 
-        composer, _ = Composer.objects.get_or_create(name=composer_name)
+        composer = first_or_create(Composer, name=composer_name)
 
         if conductor_name:
             _, conductor_name = conductor_name.split(": ")
-            conductor, _ = Conductor.objects.get_or_create(name=conductor_name)
+            conductor = first_or_create(Conductor, name=conductor_name)
             instance.conductor = conductor
         else:
             instance.conductor = None
 
         if orchestra_name:
-            orchestra, _ = Orchestra.objects.get_or_create(name=orchestra_name)
+            orchestra = first_or_create(Orchestra, name=orchestra_name)
             instance.orchestra = orchestra
         else:
             instance.orchestra = None
 
-        music, _ = Music.objects.get_or_create(title=title, composer=composer)
+        music = first_or_create(Music, title=title, composer=composer)
 
         if semi_title:
-            music_detail, _ = MusicDetail.objects.get_or_create(
-                music=music, semi_title=semi_title
+            music_detail = first_or_create(
+                MusicDetail, music=music, semi_title=semi_title
             )
             instance.music_detail = music_detail
         else:
@@ -470,8 +477,8 @@ class TimeMusicSerializer(serializers.ModelSerializer):
             for player_name in player_names:
                 if player_name:
                     instrument, name = player_name.split(": ")
-                    player, _ = Player.objects.get_or_create(
-                        instrument=instrument.strip(), name=name.strip()
+                    player = first_or_create(
+                        Player, instrument=instrument.strip(), name=name.strip()
                     )
                     instance.players.add(player)
         else:
