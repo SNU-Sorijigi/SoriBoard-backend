@@ -1,3 +1,5 @@
+import re
+
 from django.db import models, transaction
 from django.db.models import Prefetch
 from django.utils import timezone
@@ -489,11 +491,20 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         return value
 
     def validate_conductor_name(self, value):
-        # update() splits it on ": " (the edit form shows "지휘: " + name);
-        # create() takes the name as it is.
-        if self.instance is not None and value and len(value.split(": ")) != 2:
-            raise serializers.ValidationError(f'"{value}" is not "role: name".')
-        return value
+        # create() takes the name as it is. The edit form shows "지휘: " +
+        # the name, or nothing; a name typed into that empty field comes
+        # alone, and a cleared name leaves "지휘:" (DRF trims the space).
+        if self.instance is None or not value:
+            return value
+        if ": " in value:
+            parts = value.split(": ")
+            if len(parts) == 2:
+                return parts[1].strip()
+        elif re.fullmatch(r"[^:]*:", value):
+            return ""
+        elif ":" not in value:
+            return value
+        raise serializers.ValidationError(f'"{value}" is not "role: name".')
 
     def validate(self, attrs):
         # PUT is partial (the edit form sends no time or order), but update()
@@ -561,8 +572,8 @@ class TimeMusicSerializer(serializers.ModelSerializer):
 
         composer = first_or_create(Composer, name=composer_name)
 
+        # validate_conductor_name() left just the name, or "" for none.
         if conductor_name:
-            _, conductor_name = conductor_name.split(": ")
             conductor = first_or_create(Conductor, name=conductor_name)
             instance.conductor = conductor
         else:
