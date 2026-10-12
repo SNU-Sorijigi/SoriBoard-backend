@@ -114,6 +114,34 @@ class CheckDuplicateTests(APITestCase):
             ],
         )
 
+    def test_lists_the_newest_play_first(self):
+        # Added out of order: a play entered later for an earlier session, the
+        # work played twice in one 타임 (the 2nd entered first), and a double-
+        # clicked 추가 that saved two plays with the same order.
+        self.play(CONCERTO, days_ago=1, time=2)
+        second = self.play(CONCERTO)
+        second.order = 2
+        second.save()
+        self.play("Op. 18 (1악장)")
+        self.play(CONCERTO, days_ago=5, time=3)
+        self.play(CONCERTO, time=3)
+        self.play(CONCERTO, days_ago=1, time=1)
+        self.play("Op. 18 (다시)", days_ago=5, time=3)
+
+        result = self.duplicates("Op. 18")
+        self.assertEqual(
+            [(d["date"], d["time"], d["music_title"]) for d in result],
+            [
+                ("2026-06-25", 3, CONCERTO),
+                ("2026-06-25", 1, CONCERTO),
+                ("2026-06-25", 1, "Op. 18 (1악장)"),
+                ("2026-06-24", 2, CONCERTO),
+                ("2026-06-24", 1, CONCERTO),
+                ("2026-06-20", 3, "Op. 18 (다시)"),
+                ("2026-06-20", 3, CONCERTO),
+            ],
+        )
+
     def test_other_numbers_and_other_composers_are_not_flagged(self):
         self.play(CONCERTO)
         self.play("현악 사중주 Op. 18 No. 1", "베토벤")

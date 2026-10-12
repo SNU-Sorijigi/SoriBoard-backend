@@ -492,10 +492,16 @@ class CheckDuplicateMusicView(APIView):
             return Response({"duplicates": []})
 
         cutoff = days_before(reference_date, days - 1)
-        candidates = TimeMusic.objects.filter(
-            music__composer__name=composer_name,
-            time__date__range=(cutoff, reference_date),
-        ).select_related("music", "music__composer", "time")
+        # The warning lists the plays newest first, as recent-plays does;
+        # unordered, they came back in the order they were added.
+        candidates = (
+            TimeMusic.objects.filter(
+                music__composer__name=composer_name,
+                time__date__range=(cutoff, reference_date),
+            )
+            .select_related("music", "music__composer", "time")
+            .order_by("-time__date", "-time__time", "-order", "-id")
+        )
 
         duplicates = []
         for tm in candidates:
