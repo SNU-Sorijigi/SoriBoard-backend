@@ -7,7 +7,7 @@ from rest_framework.generics import get_object_or_404  # 404s a malformed pk too
 from .models import *
 from .serializers import *
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, prefetch_related_objects
 
 _CATALOG_PATTERNS = [
     r"Op\.?\s*\d+(?:\s*,?\s*No\.?\s*\d+)?",  # Op. 55, Op. 55 No. 1
@@ -156,6 +156,8 @@ class TimeInfoViewSet(viewsets.ViewSet):
         if serializer.is_valid():
             # Saves users/mentees too, from the validated ids.
             time_info = serializer.save()
+            # The answer reads users and mentees three ways each: 2 queries, not 6.
+            prefetch_related_objects([time_info], "users", "mentees")
             return Response(TimeInfoSerializer(time_info).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

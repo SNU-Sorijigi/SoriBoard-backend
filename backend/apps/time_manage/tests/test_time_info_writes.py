@@ -148,12 +148,26 @@ class TimeInfoWriteTests(APITestCase):
         with self.assertNumQueries(9):
             response = self.create()
         self.assertEqual(response.status_code, 201)
-        with self.assertNumQueries(15):
+        with self.assertNumQueries(11):
             response = self.edit(users=[self.jigi.id, self.senior.id], mentees=[])
         self.assertEqual(response.status_code, 200)
         saved = self.saved(self.session.id)
         self.assertEqual(saved["users"], [self.jigi.id, self.senior.id])
         self.assertEqual(saved["mentees"], [])
+
+    def test_edit_answers_the_jigi_and_mentees_as_the_session_page_reads_them(self):
+        # GET timeinfo/<id>/ lists them prefetched; the edit answer did not.
+        response = self.edit(
+            users=[self.senior.id, self.jigi.id], mentees=[self.mentee.id]
+        )
+        self.assertEqual(response.status_code, 200)
+        url = reverse("timeinfo-detail", args=[self.session.id])
+        shown = self.client.get(url).json()
+        fields = ["users", "mentees", "user", "mentee", "jigi_info", "mentee_info"]
+        answer = response.json()
+        self.assertEqual({f: answer[f] for f in fields}, {f: shown[f] for f in fields})
+        self.assertEqual(answer["user"], answer["users"][0])
+        self.assertEqual(answer["mentee"], self.mentee.id)
 
     def test_form_encoded_writes_keep_every_jigi_and_mentee(self):
         # The second set read the raw form, where a repeated field gives its
