@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import serializers
 from .models import *
 
@@ -310,6 +311,13 @@ class TimeMusicSerializer(serializers.ModelSerializer):
             )
         return value
 
+    def validate_conductor_name(self, value):
+        # update() splits it on ": " (the edit form shows "지휘: " + name);
+        # create() takes the name as it is.
+        if self.instance is not None and value and len(value.split(": ")) != 2:
+            raise serializers.ValidationError(f'"{value}" is not "role: name".')
+        return value
+
     def validate(self, attrs):
         # PUT is partial (the edit form sends no time or order), but update()
         # rebuilds the music from these two, so a PUT needs them too.
@@ -320,6 +328,8 @@ class TimeMusicSerializer(serializers.ModelSerializer):
             )
         return attrs
 
+    # A play is written whole or not at all, never without its players.
+    @transaction.atomic
     def create(self, validated_data):
         composer_name = validated_data.pop("composer_name", "")
         composer, _ = Composer.objects.get_or_create(name=composer_name)
@@ -367,6 +377,7 @@ class TimeMusicSerializer(serializers.ModelSerializer):
 
         return time_music
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         player_names = validated_data.pop("player_names", [])
         title = validated_data.pop("title")

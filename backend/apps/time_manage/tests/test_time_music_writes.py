@@ -3,7 +3,14 @@ import datetime
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
-from apps.time_manage.models import Composer, Music, Player, TimeInfo, TimeMusic
+from apps.time_manage.models import (
+    Composer,
+    Conductor,
+    Music,
+    Player,
+    TimeInfo,
+    TimeMusic,
+)
 
 
 class TimeMusicWriteTests(APITestCase):
@@ -59,7 +66,8 @@ class TimeMusicWriteTests(APITestCase):
         return play.music.title, play.source, play.order, self.players(play)
 
     def counts(self):
-        return [m.objects.count() for m in (TimeMusic, Music, Composer, Player)]
+        models = (TimeMusic, Music, Composer, Conductor, Player)
+        return [m.objects.count() for m in models]
 
     def test_add_trims_player_rows_and_skips_blank_ones(self):
         response = self.add(
@@ -140,3 +148,48 @@ class TimeMusicWriteTests(APITestCase):
                         {"player_names": [f'"{row}" is not "instrument: name".']},
                     )
                     self.assertEqual((self.snapshot(), self.counts()), before)
+
+    def test_add_takes_the_conductor_name_as_it_is(self):
+        response = self.add(conductor_name="카를로스 클라이버")
+        self.assertEqual(response.status_code, 201)
+        play = TimeMusic.objects.get(pk=response.json()["id"])
+        self.assertEqual(play.conductor.name, "카를로스 클라이버")
+
+    def test_edit_conductor_without_a_role_is_400_and_saves_nothing(self):
+        # The edit form shows "지휘: " + the name, or nothing when there is no
+        # conductor; a name typed into the empty field has no "지휘: ".
+        before = self.snapshot(), self.counts()
+        for conductor, shown in [
+            ("카를로스 클라이버", "카를로스 클라이버"),
+            ("지휘:카를로스 클라이버", "지휘:카를로스 클라이버"),
+            ("지휘: 카를로스 클라이버: 빈", "지휘: 카를로스 클라이버: 빈"),
+            ("지휘: ", "지휘:"),  # the name cleared; DRF trims the space
+        ]:
+            with self.subTest(conductor=conductor):
+                # A new composer: it was saved before the edit failed.
+                response = self.edit(
+                    composer_name="새 작곡가", conductor_name=conductor
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(
+                    response.json(),
+                    {"conductor_name": [f'"{shown}" is not "role: name".']},
+                )
+                self.assertEqual((self.snapshot(), self.counts()), before)
+                self.assertIsNone(TimeMusic.objects.get(pk=self.play.pk).conductor)
+
+    def test_a_write_that_fails_halfway_saves_nothing(self):
+        # Two rows for one player (from the admin, say) make get_or_create
+        # fail after the play itself was written.
+        Player.objects.create(instrument="첼로", name="요요 마")
+        Player.objects.create(instrument="첼로", name="요요 마")
+        before = self.snapshot(), self.counts()
+        for request in [self.add, self.edit]:
+            with self.subTest(request=request.__name__):
+                with self.assertRaises(Player.MultipleObjectsReturned):
+                    request(
+                        composer_name="새 작곡가",
+                        conductor_name="지휘: 카를로스 클라이버",
+                        player_names=["첼로: 요요 마"],
+                    )
+                self.assertEqual((self.snapshot(), self.counts()), before)
