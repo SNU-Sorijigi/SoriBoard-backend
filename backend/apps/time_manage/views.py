@@ -352,7 +352,8 @@ class MusicByComposerViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class NewsViewSet(viewsets.ModelViewSet):
-    queryset = News.objects.all()
+    # The TV shows the first news: the oldest, not whichever row comes first.
+    queryset = News.objects.order_by("id")
     serializer_class = NewsSerializer
 
 
