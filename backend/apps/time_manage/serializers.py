@@ -10,7 +10,19 @@ class BlankAsNullIntegerField(serializers.IntegerField):
         return super().validate_empty_values(None if data == "" else data)
 
 
+class SQLitePrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
+    """An id past SQLite's 64-bit INTEGER is a missing one: the driver raised
+    OverflowError (500), which DRF's field does not catch."""
+
+    def to_internal_value(self, data):
+        try:
+            return super().to_internal_value(data)
+        except OverflowError:
+            self.fail("does_not_exist", pk_value=data)
+
+
 class UserSerializer(serializers.ModelSerializer):
+    serializer_related_field = SQLitePrimaryKeyRelatedField
     sabu_info = serializers.SerializerMethodField()
     # 지기 설정 sends "" when 입부 년도 or 학기 (the integer fields, both
     # optional) is left empty. Mapped, not declared, to keep the field order.
@@ -103,12 +115,15 @@ class SemesterSerializer(serializers.ModelSerializer):
 
 
 class TimetableSerializer(serializers.ModelSerializer):
+    serializer_related_field = SQLitePrimaryKeyRelatedField
+
     class Meta:
         model = Timetable
         fields = "__all__"
 
 
 class TimetableUnitSerializer(serializers.ModelSerializer):
+    serializer_related_field = SQLitePrimaryKeyRelatedField
     jigi_info = serializers.SerializerMethodField()
     mentee_info = serializers.SerializerMethodField()
 
@@ -159,6 +174,7 @@ class BlankAsNullTimeField(serializers.TimeField):
 
 
 class TimeInfoSerializer(serializers.ModelSerializer):
+    serializer_related_field = SQLitePrimaryKeyRelatedField
     jigi_info = serializers.SerializerMethodField()
     mentee_info = serializers.SerializerMethodField()
     # The session forms send "" when no 견습 arrival time is entered.
@@ -302,6 +318,7 @@ class TimeInfoDetailSerializer(serializers.ModelSerializer):
 
 
 class TimeMusicSerializer(serializers.ModelSerializer):
+    serializer_related_field = SQLitePrimaryKeyRelatedField
     title = serializers.CharField(write_only=True)
     semi_title = serializers.CharField(
         write_only=True, allow_blank=True, required=False

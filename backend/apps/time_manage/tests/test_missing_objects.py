@@ -197,6 +197,113 @@ class TooLargeIdTests(APITestCase):
         self.assertEqual(self.play.order, 2)
 
 
+class TooLargeBodyIdTests(APITestCase):
+    """An id in the body past SQLite's 64-bit INTEGER is refused like a missing one."""
+
+    def setUp(self):
+        self.semester = Semester.objects.create(
+            year=2026, semester_num=2, start_time="09:30:00", end_time="17:40:00"
+        )
+        self.timetable = self.semester.timetable
+        # The semester comes with every cell: free one for the POSTs below.
+        self.cell = self.timetable.units.get(day=0, time=1)
+        self.timetable.units.filter(day=1).delete()
+        self.session = TimeInfo.objects.create(
+            date=datetime.date(2026, 9, 7), time=1, arrival_time="09:30:00"
+        )
+        self.play = TimeMusic.objects.create(time=self.session, order=1, source="ROON")
+        self.user = User.objects.create(name="김지기", major="음악", year_id="24")
+        self.models = [Timetable, TimetableUnit, TimeInfo, TimeMusic, User]
+
+    def counts(self):
+        return {model.__name__: model.objects.count() for model in self.models}
+
+    def requests(self, pk):
+        """(method, url, body, the field the error names) for each relation."""
+        new_session = {"time": 2, "date": "2026-09-07", "arrival_time": "09:30"}
+        play = {"source": "ROON", "title": "교향곡 제7번", "composer_name": "베토벤"}
+        cell = {"timetable": self.timetable.id, "day": 1, "time": 1}
+        user_url = reverse("user-detail", args=[self.user.id])
+        session_url = reverse("timeinfo-detail", args=[self.session.id])
+        play_url = reverse("timemusic-detail", args=[self.play.id])
+        cell_url = reverse("timetableunit-detail", args=[self.cell.id])
+        return [
+            (
+                "post",
+                reverse("user-list"),
+                {"name": "a", "major": "b", "year_id": "25", "sabu_id": pk},
+                "sabu_id",
+            ),  # fmt: skip
+            ("patch", user_url, {"sabu_id": pk}, "sabu_id"),
+            ("post", reverse("timeinfo-list"), {**new_session, "users": [pk]}, "users"),
+            (
+                "post",
+                reverse("timeinfo-list"),
+                {**new_session, "mentees": [pk]},
+                "mentees",
+            ),  # fmt: skip
+            # The legacy single fields are read as one-item lists.
+            ("post", reverse("timeinfo-list"), {**new_session, "user": pk}, "users"),
+            ("put", session_url, {"users": [self.user.id, pk]}, "users"),
+            ("put", session_url, {"mentee": pk}, "mentees"),
+            (
+                "post",
+                reverse("timemusic-list"),
+                {**play, "time": pk, "order": 2},
+                "time",
+            ),  # fmt: skip
+            ("put", play_url, {**play, "time": pk}, "time"),
+            (
+                "post",
+                reverse("timetableunit-list"),
+                {**cell, "timetable": pk},
+                "timetable",
+            ),  # fmt: skip
+            ("post", reverse("timetableunit-list"), {**cell, "users": [pk]}, "users"),
+            ("patch", cell_url, {"mentees": [pk]}, "mentees"),
+            ("post", reverse("timetable-list"), {"semester": pk}, "semester"),
+        ]
+
+    def test_writes_with_an_id_past_the_range_are_400(self):
+        before = self.counts()
+        # ±2**63 edges are storable: they were a 400 "does not exist" already.
+        for pk in TOO_LARGE_IDS + [10**30, str(2**63), 2**63 - 1, -(2**63)]:
+            for method, url, body, field in self.requests(pk):
+                with self.subTest(method=method, url=url, body=body):
+                    response = getattr(self.client, method)(url, body, format="json")
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(
+                        response.json()[field],
+                        [f'Invalid pk "{pk}" - object does not exist.'],
+                    )
+        self.assertEqual(self.counts(), before)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.sabu_id)
+        self.assertFalse(self.session.users.exists())
+        self.assertFalse(self.cell.mentees.exists())
+        self.play.refresh_from_db()
+        self.assertEqual(self.play.time, self.session)
+
+    def test_the_same_writes_with_a_real_id_still_save(self):
+        other = User.objects.create(name="박지기", major="음악", year_id="23")
+        before = self.counts()
+        for method, url, body, field in self.requests(other.id):
+            if field in ("time", "timetable", "semester"):
+                continue  # these need a session, timetable or semester id
+            with self.subTest(method=method, url=url, body=body):
+                response = getattr(self.client, method)(url, body, format="json")
+                self.assertIn(response.status_code, (200, 201), response.content)
+            # Drop what a POST created, so the next one is not a duplicate.
+            TimeInfo.objects.filter(time=2).delete()
+            TimetableUnit.objects.filter(day=1).delete()
+            User.objects.filter(name="a").delete()
+        self.assertEqual(self.counts(), before)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.sabu_id, other)
+        self.assertEqual(list(self.session.mentees.all()), [other])
+        self.assertEqual(list(self.cell.mentees.all()), [other])
+
+
 class TimeInfoLookupTests(APITestCase):
     """GET timeinfo/?date=YYYY-MM-DD&time=N returns the session id or null."""
 
