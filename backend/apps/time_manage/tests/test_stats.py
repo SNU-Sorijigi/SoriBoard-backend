@@ -327,6 +327,44 @@ class StatsTests(StatsRequests, APITestCase):
         self.assertEqual(result["items"][1], {"id": "고전", "name": "고전", "count": 3})
         self.assertEqual(result["unknown_share"], 0.1667)
 
+    def test_an_override_that_is_not_an_era_falls_back_to_birth_year(self):
+        # era_override is free text in the admin. A label the charts do not
+        # know dropped the play from them, though total_plays still counted it.
+        modern = Composer.objects.create(
+            name="히나스테라", birth_year=1916, era_override="20세기"
+        )
+        undated = Composer.objects.create(name="무명", era_override="르네상스")
+        # A known label still wins over the birth year (1872 is 낭만).
+        scriabin = Composer.objects.create(
+            name="스크랴빈", birth_year=1872, era_override="근현대"
+        )
+        week = [datetime.date(2024, 4, 1) + datetime.timedelta(days=n) for n in (0, 1)]
+        self.add_play(week[0], music=Music.objects.create(composer=modern, title="A"))
+        self.add_play(week[1], music=Music.objects.create(composer=undated, title="B"))
+        self.add_play(week[1], time=2, music=self.symphony)
+        self.add_play(
+            week[1], time=3, music=Music.objects.create(composer=scriabin, title="C")
+        )
+        params = {"start": "2024-04-01", "end": "2024-04-07"}
+
+        eras = self.get("eras", **params)
+        self.assertEqual(eras["total_plays"], 4)
+        self.assertEqual(self.counts(eras), {"고전": 1, "근현대": 2, "미상": 1})
+        self.assertEqual(eras["unknown_share"], 0.25)
+
+        diversity = self.get("diversity", **params)
+        self.assertEqual(
+            diversity["summary"]["era"],
+            {
+                "labels": ["고전", "근현대"],
+                "values": [1, 2],
+                "unknown_share": 0.25,
+                "entropy": 0.6365,
+                "evenness": 0.3955,
+            },
+        )
+        self.assertEqual(diversity["timeline"]["era_evenness"], [0.3955])
+
     def test_genres_follow_title_and_line_up(self):
         result = self.get("genres")
         self.assertEqual(result["total_plays"], 6)

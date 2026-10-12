@@ -42,8 +42,12 @@ ERA_ORDER = [label for label, _ in ERA_BUCKETS] + ["미상"]
 
 
 def era_for(birth_year, override=None):
-    """출생년도(+보정)를 시대 라벨로 변환."""
-    if override:
+    """출생년도(+보정)를 시대 라벨로 변환.
+
+    보정값은 admin 에서 자유 입력이라, ERA_ORDER 에 없는 라벨(예: "20세기")은
+    무시하고 출생년도로 분류한다. 그대로 쓰면 차트 어느 칸에도 들지 않았다.
+    """
+    if override in ERA_ORDER:
         return override
     if birth_year is None:
         return "미상"
