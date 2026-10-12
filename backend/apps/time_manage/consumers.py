@@ -92,7 +92,11 @@ class TvDisplayConsumer(AsyncWebsocketConsumer):
     @sync_to_async
     def get_serialized_time_music(self, time_music_id):
         try:
-            time_music = TimeMusic.objects.get(pk=time_music_id)
+            # The names TimeMusicListSerializer shows come with the play: one
+            # query, then one for its players, not one per name.
+            time_music = TimeMusic.objects.select_related(
+                "music__composer", "music_detail", "conductor", "orchestra"
+            ).get(pk=time_music_id)
         except (TimeMusic.DoesNotExist, TypeError, ValueError, OverflowError):
             # No such play, or an id the database cannot look up.
             return None

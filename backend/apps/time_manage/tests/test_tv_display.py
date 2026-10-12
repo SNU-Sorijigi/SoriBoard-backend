@@ -108,6 +108,41 @@ class TvDisplayTests(TestCase):
         await tv.disconnect()
         await session_page.disconnect()
 
+    def test_a_play_is_read_for_the_tv_in_two_queries(self):
+        # The play with its music, composer, semi-title, conductor and
+        # orchestra, then its players: not one query for each of them.
+        read = async_to_sync(TvDisplayConsumer().get_serialized_time_music)
+        with self.assertNumQueries(2):
+            info = read(self.play.id)
+        self.assertEqual(info["composer_name"], "요하네스 브람스")
+        self.assertEqual(info["player_names"], ["바이올린: 정경화"])
+
+        # A play with only a source is still shown; DRF leaves out the names
+        # it has no music, conductor or orchestra for.
+        bare = TimeMusic.objects.create(time=self.play.time, order=3, source="LP")
+        self.assertEqual(
+            read(bare.id),
+            {
+                "id": bare.id,
+                "order": 3,
+                "is_requested": False,
+                "source": "LP",
+                "cd_id": None,
+                "player_names": [],
+            },
+        )
+
+        # Every player is shown, still in the one query for the players.
+        cello = Player.objects.create(instrument="첼로", name="장한나")
+        piano = Player.objects.create(instrument="피아노", name="조성진")
+        self.play.players.add(piano, cello)
+        with self.assertNumQueries(2):
+            info = read(self.play.id)
+        self.assertCountEqual(
+            info["player_names"],
+            ["바이올린: 정경화", "첼로: 장한나", "피아노: 조성진"],
+        )
+
     async def test_break_time_and_display_sizes_reach_the_tv(self):
         tv = await self.connect()
         settings = await self.connect()
