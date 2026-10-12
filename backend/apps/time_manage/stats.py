@@ -514,6 +514,8 @@ class PlaysOverTimeStatsView(APIView):
         qs, applied = base_queryset(request)
         total = qs.count()
         bucket = request.query_params.get("bucket", "month")
+        if bucket not in ("week", "month", "semester"):
+            bucket = "month"
 
         if bucket == "week":
             trunc = TruncWeek("time__date")

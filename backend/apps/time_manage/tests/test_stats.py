@@ -412,9 +412,13 @@ class StatsTests(StatsRequests, APITestCase):
         self.assertEqual(semester["labels"], ["2023-2", "2024-1"])
         self.assertEqual(semester["values"], [1, 5])
 
-        other = self.get("timeline", bucket="year")
-        self.assertEqual(other["labels"], ["2024-02", "2024-03"])
-        self.assertEqual(other["values"], [1, 5])
+        # Any other bucket is by month, and says so.
+        for bucket in ("year", "", "WEEK"):
+            with self.subTest(bucket=bucket):
+                other = self.get("timeline", bucket=bucket)
+                self.assertEqual(other["filters"], {"scope": "all", "bucket": "month"})
+                self.assertEqual(other["labels"], ["2024-02", "2024-03"])
+                self.assertEqual(other["values"], [1, 5])
 
     def test_timeline_semesters_run_september_to_february(self):
         for date in ("2024-08-31", "2024-09-02", "2025-01-02"):
