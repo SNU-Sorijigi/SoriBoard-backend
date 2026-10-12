@@ -149,6 +149,28 @@ class TimeMusicWriteTests(APITestCase):
                     )
                     self.assertEqual((self.snapshot(), self.counts()), before)
 
+    def test_an_order_past_sqlites_integers_is_400_and_saves_nothing(self):
+        # Past SQLite's 64-bit INTEGER the save raised OverflowError (500).
+        before = self.snapshot(), self.counts()
+        for order in [2**63, -(2**63) - 1, 10**30]:
+            for request in [self.add, self.edit]:
+                with self.subTest(order=order, request=request.__name__):
+                    response = request(order=order)
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(list(response.json()), ["order"])
+                    self.assertEqual((self.snapshot(), self.counts()), before)
+
+    def test_the_largest_orders_are_saved(self):
+        for order in [2**63 - 1, -(2**63)]:
+            with self.subTest(order=order):
+                response = self.add(order=order)
+                self.assertEqual(response.status_code, 201)
+                play = TimeMusic.objects.get(pk=response.json()["id"])
+                self.assertEqual(play.order, order)
+                response = self.edit(order=order)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(self.snapshot()[2], order)
+
     def test_add_takes_the_conductor_name_as_it_is(self):
         response = self.add(conductor_name="카를로스 클라이버")
         self.assertEqual(response.status_code, 201)

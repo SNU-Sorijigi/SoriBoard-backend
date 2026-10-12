@@ -90,6 +90,8 @@ class SemesterSerializer(serializers.ModelSerializer):
             "semester_num": {"min_value": 1, "max_value": 2},
             # With no 타임 a semester has no timetable cells at all.
             "total_time": {"min_value": 1},
+            # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500).
+            "rest_time": {"min_value": -(2**63), "max_value": 2**63 - 1},
         }
 
     def get_timetable_id(self, obj):
@@ -322,6 +324,8 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         fields = "__all__"
         extra_kwargs = {
             "source": {"allow_blank": False},
+            # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500).
+            "order": {"min_value": -(2**63), "max_value": 2**63 - 1},
             "music": {"read_only": True},
             "music_detail": {"read_only": True},
             "conductor": {"read_only": True},

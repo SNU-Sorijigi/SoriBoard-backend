@@ -86,6 +86,10 @@ class SemesterBoundsTests(APITestCase):
         ("year", 9999),
         ("year", 20266),
         ("year", int("9" * 25)),
+        # Past SQLite's 64-bit INTEGER the save raised OverflowError (500).
+        ("rest_time", 2**63),
+        ("rest_time", -(2**63) - 1),
+        ("rest_time", 10**30),
     ]
 
     def create(self, **changes):
@@ -125,8 +129,13 @@ class SemesterBoundsTests(APITestCase):
                 self.assertEqual(list(response.json()), [field])
                 semester = Semester.objects.get(pk=saved.pk)
                 self.assertEqual(
-                    (semester.year, semester.semester_num, semester.total_time),
-                    (2026, 2, 4),
+                    (
+                        semester.year,
+                        semester.semester_num,
+                        semester.total_time,
+                        semester.rest_time,
+                    ),
+                    (2026, 2, 4, 10),
                 )
                 self.assertEqual(
                     list(TimetableUnit.objects.filter(timetable=saved.timetable)),
@@ -138,13 +147,14 @@ class SemesterBoundsTests(APITestCase):
 
     def test_the_bounds_themselves_are_accepted(self):
         for changes in (
-            {"year": 1, "semester_num": 1, "total_time": 1},
-            {"year": 9998, "semester_num": 2, "total_time": 1},
+            {"year": 1, "semester_num": 1, "total_time": 1, "rest_time": -(2**63)},
+            {"year": 9998, "semester_num": 2, "total_time": 1, "rest_time": 2**63 - 1},
         ):
             with self.subTest(**changes):
                 response = self.create(**changes)
                 self.assertEqual(response.status_code, 201)
                 semester = Semester.objects.get(pk=response.json()["id"])
+                self.assertEqual(semester.rest_time, changes["rest_time"])
                 self.assertEqual(
                     TimetableUnit.objects.filter(timetable=semester.timetable).count(),
                     7,
