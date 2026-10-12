@@ -111,7 +111,12 @@ class TvDisplayTests(TestCase):
     def test_a_play_is_read_for_the_tv_in_two_queries(self):
         # The play with its music, composer, semi-title, conductor and
         # orchestra, then its players: not one query for each of them.
-        read = async_to_sync(TvDisplayConsumer().get_serialized_time_music)
+        consumer = TvDisplayConsumer()
+
+        @async_to_sync
+        async def read(play_id):
+            return await consumer.get_serialized_time_music(play_id)
+
         with self.assertNumQueries(2):
             info = read(self.play.id)
         self.assertEqual(info["composer_name"], "요하네스 브람스")
