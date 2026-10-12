@@ -40,7 +40,10 @@ class Semester(models.Model):
         with transaction.atomic():
             if self.pk:
                 old_semester = Semester.objects.get(pk=self.pk)
-                if old_semester.total_time != self.total_time:
+                # Without a timetable (deleted), the code below builds one.
+                if old_semester.total_time != self.total_time and hasattr(
+                    self, "timetable"
+                ):
                     self.update_timetable_structure()
 
             super().save(*args, **kwargs)

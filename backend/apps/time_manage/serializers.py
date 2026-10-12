@@ -75,8 +75,11 @@ class SemesterSerializer(serializers.ModelSerializer):
         }
 
     def get_timetable_id(self, obj):
-        timetable = Timetable.objects.get(semester=obj)
-        return timetable.id if timetable else None
+        # A deleted timetable (timetable/<id>/ DELETE, the admin) was a 500.
+        try:
+            return obj.timetable.id
+        except Timetable.DoesNotExist:
+            return None
 
 
 class TimetableSerializer(serializers.ModelSerializer):

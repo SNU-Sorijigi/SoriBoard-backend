@@ -149,3 +149,94 @@ class SemesterBoundsTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["semester_num"], 3)
         self.assertEqual(response.json()["total_time"], 5)
+
+
+class SemesterReadTests(APITestCase):
+    """semester/ and semester/<id>/ show each semester with its timetable's id;
+    the session calendar and 학기 관리 read the timetable through it."""
+
+    def body(self, semester, timetable_id):
+        return {
+            "id": semester.id,
+            "year": semester.year,
+            "semester_num": semester.semester_num,
+            "total_time": 4,
+            "start_time": "09:30:00",
+            "end_time": "17:40:00",
+            "rest_time": 10,
+            "timetable_id": timetable_id,
+        }
+
+    def test_list_and_detail_show_the_timetable_id(self):
+        spring = semester(2026, 1)
+        fall = semester(2026, 2)
+
+        response = self.client.get(reverse("semester-list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            sorted(response.json(), key=lambda row: row["id"]),
+            [
+                self.body(spring, spring.timetable.id),
+                self.body(fall, fall.timetable.id),
+            ],
+        )
+
+        response = self.client.get(reverse("semester-detail", args=[fall.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), self.body(fall, fall.timetable.id))
+
+    def test_the_list_and_detail_take_one_query(self):
+        first = semester(2020, 1)
+        for count in (1, 6):
+            while Semester.objects.count() < count:
+                semester(2020 + Semester.objects.count(), 2)
+            with self.subTest(semesters=count):
+                with self.assertNumQueries(1):
+                    response = self.client.get(reverse("semester-list"))
+                self.assertEqual(len(response.json()), count)
+        with self.assertNumQueries(1):
+            response = self.client.get(reverse("semester-detail", args=[first.id]))
+        self.assertEqual(response.json()["timetable_id"], first.timetable.id)
+
+    def test_a_semester_without_a_timetable_shows_none(self):
+        # DELETE timetable/<id>/ (or the admin) can remove it; that was a 500.
+        kept = semester(2026, 1)
+        lost = semester(2026, 2)
+        Timetable.objects.filter(semester=lost).delete()
+
+        response = self.client.get(reverse("semester-list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            sorted(response.json(), key=lambda row: row["id"]),
+            [self.body(kept, kept.timetable.id), self.body(lost, None)],
+        )
+        response = self.client.get(reverse("semester-detail", args=[lost.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), self.body(lost, None))
+
+    def test_an_edit_rebuilds_a_missing_timetable(self):
+        # 학기 수정, with the same 타임 count and with another one.
+        for total_time in (4, 2):
+            with self.subTest(total_time=total_time):
+                lost = semester(2020 + total_time, 2)
+                Timetable.objects.filter(semester=lost).delete()
+                response = self.client.put(
+                    reverse("semester-detail", args=[lost.id]),
+                    {"total_time": total_time, "rest_time": 10},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 200)
+                timetable = Timetable.objects.get(semester=lost)
+                self.assertEqual(response.json()["timetable_id"], timetable.id)
+                cells = list(TimetableUnit.objects.filter(timetable=timetable))
+                self.assertEqual(
+                    sorted((cell.day, cell.time) for cell in cells),
+                    [(d, t) for d in range(7) for t in range(1, total_time + 1)],
+                )
+                self.assertEqual(
+                    timetable.table,
+                    {
+                        str(day): {str(c.time): c.id for c in cells if c.day == day}
+                        for day in range(7)
+                    },
+                )

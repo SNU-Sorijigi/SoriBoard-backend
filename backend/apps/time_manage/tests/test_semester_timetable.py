@@ -150,15 +150,15 @@ class SemesterTimetableTests(APITestCase):
                 semester = Semester.objects.get(pk=response.json()["id"])
                 self.assertGrid(semester, total_time)
 
-    def test_a_time_count_change_rebuilds_the_cells_in_fifteen_queries(self):
+    def test_a_time_count_change_rebuilds_the_cells_in_fourteen_queries(self):
         semester = self.create_semester()
         for total_time in (8, 3):
             with self.subTest(total_time=total_time):
                 # The semester, unique check, savepoint, the saved 타임 count,
                 # timetable, old cells and their 지기/견습 links (4), every new
-                # cell, the cells read back, table, semester, release,
-                # timetable_id.
-                with self.assertNumQueries(15):
+                # cell, the cells read back, table, semester, release. The
+                # answer's timetable_id reuses the timetable read for the save.
+                with self.assertNumQueries(14):
                     response = self.client.put(
                         reverse("semester-detail", args=[semester.id]),
                         {**self.edit_body, "total_time": total_time},

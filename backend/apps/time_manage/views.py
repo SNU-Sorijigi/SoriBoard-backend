@@ -49,13 +49,14 @@ class UserViewSet(viewsets.ModelViewSet):
 
 
 class SemesterViewSet(viewsets.ViewSet):
+    # Each semester shows its timetable's id: one query, not one per semester.
     def list(self, request):
-        queryset = Semester.objects.all()
+        queryset = Semester.objects.select_related("timetable")
         serializer = SemesterSerializer(queryset, many=True)
         return Response(serializer.data)
 
     def retrieve(self, request, pk=None):
-        queryset = Semester.objects.all()
+        queryset = Semester.objects.select_related("timetable")
         semester = get_object_or_404(queryset, pk=pk)
         serializer = SemesterSerializer(semester)
         return Response(serializer.data)
