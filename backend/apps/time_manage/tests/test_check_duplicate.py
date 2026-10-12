@@ -148,6 +148,19 @@ class CheckDuplicateTests(APITestCase):
             with self.subTest(days=days):
                 self.assertEqual(self.request("Op. 18", days=days).status_code, 400)
 
+    def test_a_window_reaching_past_year_one_starts_on_its_first_day(self):
+        # Longer windows overflowed the date arithmetic (500).
+        for days_ago in (0, 7, self.session_date.toordinal() - 1):
+            self.play(CONCERTO, days_ago=days_ago)
+        longest = self.session_date.toordinal()  # starts on 0001-01-01
+        for days in (longest, longest + 1, 10**9, 10**30):
+            with self.subTest(days=days):
+                result = self.duplicates("Op. 18", days=days)
+                self.assertEqual(
+                    sorted(d["date"] for d in result),
+                    ["0001-01-01", "2026-06-18", "2026-06-25"],
+                )
+
     def test_query_count_does_not_grow_with_earlier_plays(self):
         for days_ago in range(5):
             self.play(CONCERTO, days_ago=days_ago)

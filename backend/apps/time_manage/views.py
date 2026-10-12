@@ -354,10 +354,18 @@ class NewsViewSet(viewsets.ModelViewSet):
 
 def session_reference_date(request):
     """Use the saved session date, never the browser or server's current date."""
-    time_id = serializers.IntegerField(min_value=1).run_validation(
-        request.query_params.get("time_id")
-    )
+    # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500).
+    session_id = serializers.IntegerField(min_value=1, max_value=2**63 - 1)
+    time_id = session_id.run_validation(request.query_params.get("time_id"))
     return get_object_or_404(TimeInfo.objects.only("date"), pk=time_id).date
+
+
+def days_before(date, days):
+    """The date `days` days earlier, or 0001-01-01 if that is before it."""
+    try:
+        return date - datetime.timedelta(days=days)
+    except OverflowError:  # past datetime.date.min, or a timedelta too large
+        return datetime.date.min
 
 
 class RecentPlaysView(APIView):
@@ -376,8 +384,8 @@ class RecentPlaysView(APIView):
                 }
             )
 
-        week_start = reference_date - datetime.timedelta(days=6)
-        month_start = reference_date - datetime.timedelta(days=29)
+        week_start = days_before(reference_date, 6)
+        month_start = days_before(reference_date, 29)
         plays = (
             TimeMusic.objects.filter(
                 music__composer__name__istartswith=composer_prefix,
@@ -447,7 +455,7 @@ class CheckDuplicateMusicView(APIView):
         if not new_ids:
             return Response({"duplicates": []})
 
-        cutoff = reference_date - datetime.timedelta(days=days - 1)
+        cutoff = days_before(reference_date, days - 1)
         candidates = TimeMusic.objects.filter(
             music__composer__name=composer_name,
             time__date__range=(cutoff, reference_date),
