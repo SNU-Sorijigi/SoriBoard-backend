@@ -112,6 +112,84 @@ class UserReadTests(APITestCase):
         self.assertEqual(response.json()["sabu_info"], "이사부 물리학과 20")
 
 
+class UserWriteTests(APITestCase):
+    """지기 설정 adds a 지기 with POST user/ and edits one with PUT user/<id>/.
+
+    입부 년도 and 학기 are free-text inputs that send "" when left empty.
+    """
+
+    def setUp(self):
+        self.jigi = User.objects.create(
+            name="김지기",
+            major="음악학과",
+            year_id="22",
+            join_year=2022,
+            join_semester=2,
+        )
+
+    def form(self, **fields):
+        # What the add and edit forms send.
+        body = {
+            "name": "박신입",
+            "major": "경제학부",
+            "year_id": "26",
+            "is_ob": False,
+            "sabu_id": None,
+            "join_year": 2026,
+            "join_semester": 1,
+        }
+        body.update(fields)
+        return body
+
+    def add(self, **fields):
+        url = reverse("user-list")
+        return self.client.post(url, self.form(**fields), format="json")
+
+    def edit(self, **fields):
+        url = reverse("user-detail", args=[self.jigi.id])
+        return self.client.put(url, self.form(**fields), format="json")
+
+    def joined(self, user):
+        user.refresh_from_db()
+        return user.join_year, user.join_semester
+
+    def test_an_empty_join_year_or_semester_is_saved_as_none(self):
+        response = self.add(join_year="")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["join_year"], None)
+        self.assertEqual(self.joined(User.objects.get(name="박신입")), (None, 1))
+
+        response = self.edit(join_year="", join_semester="")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["join_semester"], None)
+        self.assertEqual(self.joined(self.jigi), (None, None))
+        self.assertEqual(self.jigi.name, "박신입")
+
+    def test_a_join_year_or_semester_is_saved_as_sent(self):
+        self.assertEqual(self.edit(join_year="2025").status_code, 200)
+        self.assertEqual(self.joined(self.jigi), (2025, 1))
+        self.assertEqual(self.edit(join_year=None, join_semester=2).status_code, 200)
+        self.assertEqual(self.joined(self.jigi), (None, 2))
+        for largest in (2**63 - 1, -(2**63)):
+            self.assertEqual(self.edit(join_year=largest).status_code, 200)
+            self.assertEqual(self.joined(self.jigi), (largest, 1))
+
+    def test_a_join_year_or_semester_past_sqlites_integers_is_a_400(self):
+        # Past SQLite's 64-bit INTEGER the save raised OverflowError (500).
+        for field in ("join_year", "join_semester"):
+            for value in (2**63, -(2**63) - 1, 10**30, "abc", "  "):
+                with self.subTest(field=field, value=value):
+                    response = self.add(**{field: value})
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(list(response.json()), [field])
+                    response = self.edit(**{field: value})
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(list(response.json()), [field])
+        self.assertEqual(User.objects.count(), 1)
+        self.assertEqual(self.joined(self.jigi), (2022, 2))
+        self.assertEqual(self.jigi.name, "김지기")
+
+
 class UserDeleteTests(APITestCase):
     """지기 설정 deletes a 지기 with one confirm, then DELETE user/<id>/."""
 

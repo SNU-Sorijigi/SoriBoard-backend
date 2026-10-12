@@ -1,14 +1,32 @@
-from django.db import transaction
+from django.db import models, transaction
 from rest_framework import serializers
 from .models import *
 
 
+class BlankAsNullIntegerField(serializers.IntegerField):
+    """An emptied number input sends "": read it as no number, as DRF does for forms."""
+
+    def validate_empty_values(self, data):
+        return super().validate_empty_values(None if data == "" else data)
+
+
 class UserSerializer(serializers.ModelSerializer):
     sabu_info = serializers.SerializerMethodField()
+    # 지기 설정 sends "" when 입부 년도 or 학기 (the integer fields, both
+    # optional) is left empty. Mapped, not declared, to keep the field order.
+    serializer_field_mapping = {
+        **serializers.ModelSerializer.serializer_field_mapping,
+        models.IntegerField: BlankAsNullIntegerField,
+    }
 
     class Meta:
         model = User
         fields = "__all__"
+        # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500).
+        extra_kwargs = {
+            name: {"min_value": -(2**63), "max_value": 2**63 - 1}
+            for name in ("join_year", "join_semester")
+        }
 
     def get_sabu_info(self, obj):
         if obj.sabu_id:
