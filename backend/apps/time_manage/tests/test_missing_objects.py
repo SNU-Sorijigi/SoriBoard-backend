@@ -3,7 +3,20 @@ import datetime
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
-from apps.time_manage.models import Composer, Music, Semester, TimeInfo, TimeMusic
+from apps.time_manage.models import (
+    Composer,
+    Music,
+    News,
+    Semester,
+    Timetable,
+    TimetableUnit,
+    TimeInfo,
+    TimeMusic,
+    User,
+)
+
+# Ids SQLite cannot store: the driver raised OverflowError (500) on them.
+TOO_LARGE_IDS = [2**63, 2**64, -(2**63) - 1]
 
 
 class MissingObjectTests(APITestCase):
@@ -80,6 +93,108 @@ class MissingObjectTests(APITestCase):
         self.assertEqual(response.status_code, 204)
         self.assertFalse(TimeMusic.objects.exists())
         self.assertFalse(TimeInfo.objects.exists())
+
+
+class TooLargeIdTests(APITestCase):
+    """An id in the URL past SQLite's 64-bit INTEGER answers like a missing one."""
+
+    def setUp(self):
+        self.semester = Semester.objects.create(
+            year=2026, semester_num=2, start_time="09:30:00", end_time="17:40:00"
+        )
+        self.session = TimeInfo.objects.create(
+            date=datetime.date(2026, 9, 7), time=1, arrival_time="09:30:00"
+        )
+        self.composer = Composer.objects.create(name="루트비히 판 베토벤")
+        self.music = Music.objects.create(
+            composer=self.composer, title="교향곡 제7번 Op. 92"
+        )
+        self.play = TimeMusic.objects.create(
+            time=self.session, music=self.music, order=1, source="ROON"
+        )
+        self.other_play = TimeMusic.objects.create(
+            time=self.session, music=self.music, order=2, source="ROON"
+        )
+        User.objects.create(name="김지기")
+        News.objects.create(content="정기 감상회 3/24 19:00")
+        self.models = [
+            Semester,
+            Timetable,
+            TimetableUnit,
+            TimeInfo,
+            TimeMusic,
+            Composer,
+            Music,
+            User,
+            News,
+        ]
+
+    def counts(self):
+        return {model.__name__: model.objects.count() for model in self.models}
+
+    def test_detail_routes_answer_404(self):
+        routes = {
+            "semester-detail": ["get", "put", "delete"],
+            "timeinfo-detail": ["get", "put", "delete"],
+            "timemusic-detail": ["put", "delete"],
+            "user-detail": ["get", "put", "patch", "delete"],
+            "timetable-detail": ["get", "put", "patch", "delete"],
+            "timetableunit-detail": ["get", "put", "patch", "delete"],
+            "information-detail": ["get", "put", "patch", "delete"],
+            "composerlist-detail": ["get"],
+            "musiclist-detail": ["get"],
+        }
+        before = self.counts()
+        # 2**63 - 1 is the largest id SQLite stores: it was a plain 404 already.
+        for pk in TOO_LARGE_IDS + [2**63 - 1]:
+            for name, methods in routes.items():
+                url = reverse(name, args=[pk])
+                for method in methods:
+                    with self.subTest(url=url, method=method):
+                        response = getattr(self.client, method)(url, {}, format="json")
+                        self.assertEqual(response.status_code, 404)
+                        self.assertEqual(response.json(), {"detail": "Not found."})
+        self.assertEqual(self.counts(), before)
+
+    def test_musics_by_a_composer_past_the_range_are_none(self):
+        for composer_id in [2**63, 2**64, 10**30]:
+            with self.subTest(composer_id=composer_id):
+                url = reverse("music-by-composer-list", args=[composer_id])
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json(), [])
+                url = reverse(
+                    "music-by-composer-detail", args=[composer_id, self.music.id]
+                )
+                self.assertEqual(self.client.get(url).status_code, 404)
+        for music_id in TOO_LARGE_IDS:
+            with self.subTest(music_id=music_id):
+                url = reverse(
+                    "music-by-composer-detail", args=[self.composer.id, music_id]
+                )
+                self.assertEqual(self.client.get(url).status_code, 404)
+        # The largest storable composer id is still looked up.
+        url = reverse("music-by-composer-list", args=[2**63 - 1])
+        self.assertEqual(self.client.get(url).json(), [])
+
+    def test_swapping_with_a_play_past_the_range_changes_nothing(self):
+        # swaporder/ takes <int:> ids, which cannot be negative.
+        for pk in [2**63, 2**64]:
+            for pair in [(self.play.id, pk), (pk, self.other_play.id), (pk, pk)]:
+                with self.subTest(pair=pair):
+                    response = self.client.post(reverse("swaporder", args=pair))
+                    self.assertEqual(response.status_code, 404)
+                    self.assertIn("error", response.json())
+        self.play.refresh_from_db()
+        self.other_play.refresh_from_db()
+        self.assertEqual((self.play.order, self.other_play.order), (1, 2))
+        # The swap still works afterwards.
+        response = self.client.post(
+            reverse("swaporder", args=[self.play.id, self.other_play.id])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.play.refresh_from_db()
+        self.assertEqual(self.play.order, 2)
 
 
 class TimeInfoLookupTests(APITestCase):

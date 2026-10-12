@@ -1,13 +1,33 @@
-from rest_framework import viewsets, status, serializers
+from rest_framework import generics, viewsets, status, serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 import datetime
 import re
-from rest_framework.generics import get_object_or_404  # 404s a malformed pk too
 from .models import *
 from .serializers import *
 from django.db import transaction
 from django.db.models import Count, prefetch_related_objects
+from django.http import Http404
+
+
+def get_object_or_404(queryset, *filter_args, **filter_kwargs):
+    """DRF's get_object_or_404 (a malformed pk is 404 too), and a 404 for an
+    id past SQLite's 64-bit INTEGER: the driver raised OverflowError (500)."""
+    try:
+        return generics.get_object_or_404(queryset, *filter_args, **filter_kwargs)
+    except OverflowError:
+        raise Http404
+
+
+class SQLiteIdMixin:
+    """The same 404 for the router viewsets' detail routes."""
+
+    def get_object(self):
+        try:
+            return super().get_object()
+        except OverflowError:
+            raise Http404
+
 
 _CATALOG_PATTERNS = [
     r"Op\.?\s*\d+(?:\s*,?\s*No\.?\s*\d+)?",  # Op. 55, Op. 55 No. 1
@@ -35,7 +55,7 @@ def extract_catalog_ids(title):
     return ids
 
 
-class UserViewSet(viewsets.ModelViewSet):
+class UserViewSet(SQLiteIdMixin, viewsets.ModelViewSet):
     # sabu_info spells out each user's 사부.
     queryset = User.objects.select_related("sabu_id")
     serializer_class = UserSerializer
@@ -90,12 +110,12 @@ class SemesterViewSet(viewsets.ViewSet):
         return Response(status=status.HTTP_400_BAD_REQUEST)
 
 
-class TimetableViewSet(viewsets.ModelViewSet):
+class TimetableViewSet(SQLiteIdMixin, viewsets.ModelViewSet):
     queryset = Timetable.objects.all()
     serializer_class = TimetableSerializer
 
 
-class TimetableUnitViewSet(viewsets.ModelViewSet):
+class TimetableUnitViewSet(SQLiteIdMixin, viewsets.ModelViewSet):
     queryset = TimetableUnit.objects.all()
     serializer_class = TimetableUnitSerializer
 
@@ -291,7 +311,8 @@ class SwapOrderView(APIView):
             try:
                 time_music_upper = TimeMusic.objects.get(id=upper_id)
                 time_music_lower = TimeMusic.objects.get(id=lower_id)
-            except TimeMusic.DoesNotExist:
+            # OverflowError: an id past SQLite's 64-bit INTEGER (was a 500).
+            except (TimeMusic.DoesNotExist, OverflowError):
                 return Response(
                     {
                         "error": "One or both of the specified TimeMusic instances do not exist."
@@ -323,7 +344,7 @@ class SwapOrderView(APIView):
         return Response({"message": "Order swapped successfully."})
 
 
-class ComposerViewSet(viewsets.ReadOnlyModelViewSet):
+class ComposerViewSet(SQLiteIdMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = ComposerSerializer
 
     def get_queryset(self):
@@ -332,7 +353,7 @@ class ComposerViewSet(viewsets.ReadOnlyModelViewSet):
         ).order_by("-num_time_music")
 
 
-class MusicViewSet(viewsets.ReadOnlyModelViewSet):
+class MusicViewSet(SQLiteIdMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = MusicSerializer
 
     def get_queryset(self):
@@ -344,11 +365,15 @@ class MusicViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
 
-class MusicByComposerViewSet(viewsets.ReadOnlyModelViewSet):
+class MusicByComposerViewSet(SQLiteIdMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = MusicSerializer
 
     def get_queryset(self):
         composer_id = self.kwargs["composer_id"]
+        # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500);
+        # no composer can have such an id.
+        if int(composer_id) > 2**63 - 1:
+            return Music.objects.none()
         return (
             Music.objects.filter(composer__id=composer_id)
             .select_related("composer")
@@ -357,7 +382,7 @@ class MusicByComposerViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
 
-class NewsViewSet(viewsets.ModelViewSet):
+class NewsViewSet(SQLiteIdMixin, viewsets.ModelViewSet):
     # The TV shows the first news: the oldest, not whichever row comes first.
     queryset = News.objects.order_by("id")
     serializer_class = NewsSerializer
