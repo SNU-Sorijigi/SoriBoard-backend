@@ -89,6 +89,33 @@ class CheckDuplicateTests(APITestCase):
             with self.subTest(title=title):
                 self.assertEqual(self.duplicates(title, composer_name), [])
 
+    def test_a_hyphenated_opus_number_is_the_numbered_piece(self):
+        # Korean listings write Op. 9 No. 2 as "Op.9-2"; it read as all of Op. 9.
+        for played, title, identifier in (
+            ("녹턴 Op. 9 No. 2", "녹턴 Op.9-2", "op.9-2"),
+            ("녹턴 Op.9-2", "Nocturne Op. 9, No. 2", "op.9,no.2"),
+            ("왈츠 Op.64-2", "왈츠 Op. 64-2", "op.64-2"),
+        ):
+            with self.subTest(played=played, title=title):
+                TimeMusic.objects.all().delete()
+                self.play(played, "쇼팽")
+                result = self.duplicates(title, "쇼팽")
+                self.assertEqual([d["music_title"] for d in result], [played])
+                self.assertEqual(result[0]["matched_identifiers"], [identifier])
+
+        # Another piece of the same opus, or another opus, is not a duplicate.
+        TimeMusic.objects.all().delete()
+        self.play("녹턴 Op.9-1", "쇼팽")
+        self.play("녹턴 Op. 9 No. 3", "쇼팽")
+        for title in ("녹턴 Op.9-2", "녹턴 Op. 9 No. 2", "Op. 92", "Op. 9 No. 21"):
+            with self.subTest(title=title):
+                self.assertEqual(self.duplicates(title, "쇼팽"), [])
+
+        # A number run into other text (1악장) is not read as the piece's.
+        self.play(CONCERTO)
+        result = self.duplicates("Op.18-1악장")
+        self.assertEqual([d["matched_identifiers"] for d in result], [["op.18"]])
+
     def test_lists_every_earlier_play_of_the_work_with_its_session(self):
         self.play(CONCERTO, time=2)
         self.play("Piano Concerto No. 2 (Op. 18)", days_ago=3, time=4)

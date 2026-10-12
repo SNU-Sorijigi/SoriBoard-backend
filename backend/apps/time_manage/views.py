@@ -30,7 +30,8 @@ class SQLiteIdMixin:
 
 
 _CATALOG_PATTERNS = [
-    r"Op\.?\s*\d+(?:\s*,?\s*No\.?\s*\d+)?",  # Op. 55, Op. 55 No. 1
+    # Op. 55, Op. 55 No. 1, and Op.55-1 (Korean listings' short form of No. 1)
+    r"Op\.?\s*\d+(?:\s*,?\s*No\.?\s*\d+|-\d+\b)?",
     r"BWV\s*\d+[a-z]?",  # BWV 147, BWV 147a
     r"\bD[.\s]\s*\d{3,}\b",  # D. 960 (Schubert, ≥3 digits)
     r"\bKV?\.?\s*\d+\b",  # K. 550, KV 550 (Mozart)
@@ -43,14 +44,16 @@ _CATALOG_PATTERNS = [
 def extract_catalog_ids(title):
     """Map the catalog identifiers in a music title to their normalized form.
 
-    Keys ignore dots and commas and read KV as K, so "Op. 18", "Op 18" and
-    "op.18" (or "K. 550" and "KV 550") match as the same work.
+    Keys ignore dots and commas, read KV as K and "-" as No., so "Op. 18",
+    "Op 18" and "op.18" (or "K. 550" and "KV 550", or "Op.9-2" and
+    "Op. 9 No. 2") match as the same work.
     """
     ids = {}
     for pattern in _CATALOG_PATTERNS:
         for match in re.finditer(pattern, title, re.IGNORECASE):
             normalized = re.sub(r"\s+", "", match.group().lower()).rstrip(".")
             key = re.sub(r"^kv", "k", re.sub(r"[.,]", "", normalized))
+            key = key.replace("-", "no")
             ids.setdefault(key, normalized)
     return ids
 
