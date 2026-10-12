@@ -166,6 +166,12 @@ class TimeInfoSerializer(serializers.ModelSerializer):
             "jigi_info",
             "mentee_info",
         ]
+        extra_kwargs = {
+            # checktime/ and the session calendar start at 타임 1, so a session
+            # on 타임 0 or below was saved but never shown. Past SQLite's 64-bit
+            # INTEGER the driver raises OverflowError (500).
+            "time": {"min_value": 1, "max_value": 2**63 - 1},
+        }
 
     def get_jigi_info(self, obj):
         return [f"{u.name} {u.major} {u.year_id}" for u in obj.users.all()]

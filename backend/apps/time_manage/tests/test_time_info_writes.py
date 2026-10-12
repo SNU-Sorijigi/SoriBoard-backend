@@ -190,3 +190,34 @@ class TimeInfoWriteTests(APITestCase):
                     self.assertIn(field, response.json())
         self.assertEqual(TimeInfo.objects.count(), 1)
         self.assertEqual(self.saved(self.session.id), before)
+
+    def test_a_time_outside_the_calendar_is_400_and_saves_nothing(self):
+        # checktime/ lists 타임 1 to 5; 2**63 overflowed SQLite (500).
+        before = self.saved(self.session.id)
+        for time in [0, -1, 2**63]:
+            for send in [self.create, self.edit]:
+                with self.subTest(time=time, send=send.__name__):
+                    response = send(time=time, users=[self.senior.id])
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(list(response.json()), ["time"])
+        self.assertEqual(TimeInfo.objects.count(), 1)
+        self.assertEqual(self.saved(self.session.id), before)
+
+        # Every 타임 from 1 up is still a session; no upper cap but SQLite's.
+        for time in [1, 5, 6, 2**63 - 1]:
+            with self.subTest(time=time):
+                response = self.create(time=time)
+                self.assertEqual(response.status_code, 201)
+                self.assertEqual(self.saved(response.json()["id"])["time"], time)
+        response = self.edit(time=1)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.saved(self.session.id)["time"], 1)
+
+    def test_comments_still_save_on_a_session_without_a_valid_time(self):
+        # A session saved before the bound: the comment form sends no time.
+        TimeInfo.objects.filter(pk=self.session.pk).update(time=0)
+        url = reverse("timeinfo-detail", args=[self.session.id])
+        response = self.client.put(url, {"time_comment_music": "음량"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["time"], 0)
+        self.assertEqual(self.saved(self.session.id)["time_comment_music"], "음량")
