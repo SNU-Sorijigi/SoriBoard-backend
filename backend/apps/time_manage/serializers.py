@@ -1,4 +1,5 @@
 from django.db import models, transaction
+from django.db.models import Prefetch
 from rest_framework import serializers
 from .models import *
 
@@ -234,6 +235,14 @@ class TimeInfoLookupSerializer(serializers.Serializer):
     time = serializers.IntegerField(min_value=-(2**63), max_value=2**63 - 1)
 
 
+def players_as_typed():
+    """Prefetch a play's players in the order they were typed: the order of
+    their rows in the play-player table. Unordered, SQLite listed them by
+    player id, so a player saved before for another play came first."""
+    table = TimeMusic.players.through._meta.db_table
+    return Prefetch("players", queryset=Player.objects.extra(order_by=[f"{table}.id"]))
+
+
 class TimeMusicListSerializer(serializers.ModelSerializer):
     music_title = serializers.CharField(source="music.title", read_only=True)
     music_semi_title = serializers.CharField(
@@ -299,7 +308,7 @@ class TimeInfoDetailSerializer(serializers.ModelSerializer):
             obj.timeplaylist.select_related(
                 "music__composer", "music_detail", "conductor", "orchestra"
             )
-            .prefetch_related("players")
+            .prefetch_related(players_as_typed())
             .order_by("order", "id")  # swaporder/ counts on ties going by id
         )
         return TimeMusicListSerializer(queryset, many=True, read_only=True).data

@@ -148,6 +148,24 @@ class TvDisplayTests(TestCase):
             ["바이올린: 정경화", "첼로: 장한나", "피아노: 조성진"],
         )
 
+    def test_the_tv_lists_a_plays_players_in_the_order_they_were_typed(self):
+        # The session page saves them one by one, in the order typed. Listed
+        # by id, 조성진 (saved first, for another play) came before 장한나.
+        piano = Player.objects.create(instrument="피아노", name="조성진")
+        cello = Player.objects.create(instrument="첼로", name="장한나")
+        self.play.players.add(cello)
+        self.play.players.add(piano)
+
+        @async_to_sync
+        async def read(play_id):
+            return await TvDisplayConsumer().get_serialized_time_music(play_id)
+
+        info = read(self.play.id)
+        self.assertEqual(
+            info["player_names"],
+            ["바이올린: 정경화", "첼로: 장한나", "피아노: 조성진"],
+        )
+
     async def test_break_time_and_display_sizes_reach_the_tv(self):
         tv = await self.connect()
         settings = await self.connect()

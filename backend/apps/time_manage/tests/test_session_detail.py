@@ -171,3 +171,37 @@ class SessionDetailTests(APITestCase):
         with self.assertNumQueries(5):
             response = self.get()
         self.assertEqual(len(response.json()["time_music"]), 23)
+
+    def test_lists_a_plays_players_in_the_order_they_were_typed(self):
+        # 장한나 and 조성진 are saved already, with lower ids than 김봄소리:
+        # listed by id, they came first whatever was typed.
+        typed = ["바이올린: 김봄소리", "첼로: 장한나"]
+        response = self.client.post(
+            reverse("timemusic-list"),
+            {
+                "time": self.session.id,
+                "order": 4,
+                "source": "CD",
+                "title": "이중 협주곡 Op. 102",
+                "composer_name": "요하네스 브람스",
+                "player_names": typed,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        play_id = response.json()["id"]
+        self.assertEqual(self.get().json()["time_music"][3]["player_names"], typed)
+
+        # An edit lists them as typed in the edit.
+        typed = ["바이올린: 김봄소리", "피아노: 조성진", "첼로: 장한나"]
+        response = self.client.put(
+            reverse("timemusic-detail", args=[play_id]),
+            {
+                "title": "이중 협주곡 Op. 102",
+                "composer_name": "요하네스 브람스",
+                "player_names": typed,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.get().json()["time_music"][3]["player_names"], typed)

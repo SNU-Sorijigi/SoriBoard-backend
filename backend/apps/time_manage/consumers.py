@@ -3,7 +3,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
 
 from .models import TimeMusic
-from .serializers import TimeMusicListSerializer
+from .serializers import TimeMusicListSerializer, players_as_typed
 
 # The TV applies every one of these, so a size update must carry them all.
 SIZE_KEYS = (
@@ -93,10 +93,14 @@ class TvDisplayConsumer(AsyncWebsocketConsumer):
     def get_serialized_time_music(self, time_music_id):
         try:
             # The names TimeMusicListSerializer shows come with the play: one
-            # query, then one for its players, not one per name.
-            time_music = TimeMusic.objects.select_related(
-                "music__composer", "music_detail", "conductor", "orchestra"
-            ).get(pk=time_music_id)
+            # query, then one for its players (as typed), not one per name.
+            time_music = (
+                TimeMusic.objects.select_related(
+                    "music__composer", "music_detail", "conductor", "orchestra"
+                )
+                .prefetch_related(players_as_typed())
+                .get(pk=time_music_id)
+            )
         except (TimeMusic.DoesNotExist, TypeError, ValueError, OverflowError):
             # No such play, or an id the database cannot look up.
             return None
