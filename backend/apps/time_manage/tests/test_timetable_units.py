@@ -249,6 +249,36 @@ class TimetableUnitTests(APITestCase):
                 last.refresh_from_db()
                 self.assertEqual(last.timetable, longer.timetable)
 
+    def test_a_cell_moved_to_another_timetable_leaves_the_old_one(self):
+        for method in ["put", "patch"]:
+            with self.subTest(method=method):
+                other = Semester.objects.create(
+                    year=2027,
+                    semester_num={"put": 1, "patch": 2}[method],
+                    total_time=4,
+                    start_time="09:30:00",
+                    end_time="17:40:00",
+                ).timetable
+                TimetableUnit.objects.get(timetable=other, day=3, time=4).delete()
+                moved = self.cell_at(day=0, time={"put": 1, "patch": 3}[method])
+                table = self.table()
+                body = {"day": 3, "time": 4, "timetable": other.id}
+                if method == "put":
+                    body["users"] = [self.other.id]
+                response = getattr(self.client, method)(
+                    reverse("timetableunit-detail", args=[moved.id]),
+                    body,
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 200)
+                # Its old slot is empty, as a deleted cell's is; nothing else moved.
+                table["0"][str(moved.time)] = None
+                self.assertEqual(self.table(), table)
+                other_table = self.client.get(
+                    reverse("timetable-detail", args=[other.id])
+                ).json()["table"]
+                self.assertEqual(other_table["3"]["4"], moved.id)
+
     def test_the_first_and_last_weekday_and_time_are_accepted(self):
         for day, time in [(0, 1), (6, 4)]:
             with self.subTest(day=day, time=time):

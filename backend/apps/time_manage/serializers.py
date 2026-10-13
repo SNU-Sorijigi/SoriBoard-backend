@@ -176,6 +176,16 @@ class TimetableUnitSerializer(serializers.ModelSerializer):
             )
         return attrs
 
+    def update(self, instance, validated_data):
+        # Saving a cell rewrites the table of the timetable it is on. Moved to
+        # another timetable, it stayed in the old one's table too, and that
+        # semester's page showed the other semester's cell in its grid.
+        old_timetable_id = instance.timetable_id
+        cell = super().update(instance, validated_data)
+        if cell.timetable_id != old_timetable_id:
+            Timetable.objects.get(pk=old_timetable_id).update_table()
+        return cell
+
     def get_jigi_info(self, obj):
         return [f"{jigi.name} {jigi.major} {jigi.year_id}" for jigi in obj.users.all()]
 
