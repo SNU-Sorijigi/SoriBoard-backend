@@ -82,3 +82,29 @@ class CheckTimeTests(APITestCase):
             with self.subTest(days=days), self.assertNumQueries(1):
                 rows = self.grid(day - span, day + span)
             self.assertEqual(len(rows), 2 * days + 1)
+
+    def test_a_range_past_a_century_gets_400(self):
+        # 1000-01-01 to 9999-12-31 took 7 s and 0.7 GB for an 89 MB answer.
+        cases = {
+            "36601 days": (
+                datetime.date(2000, 1, 1),
+                datetime.date(2000, 1, 1) + datetime.timedelta(days=36600),
+            ),
+            "every year": (datetime.date(1000, 1, 1), datetime.date(9999, 12, 31)),
+        }
+        for case, (start, end) in cases.items():
+            with self.subTest(case=case):
+                args = [start.year, start.month, start.day, end.year, end.month]
+                response = self.client.get(reverse("checktime", args=args + [end.day]))
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(
+                    response.json(), {"error": "The range must be at most 36600 days"}
+                )
+
+    def test_a_century_of_days_is_listed(self):
+        start = datetime.date(2000, 1, 1)
+        end = start + datetime.timedelta(days=36599)
+        last = self.session(end, 5)
+        rows = self.grid(start, end)
+        self.assertEqual(len(rows), 36600)
+        self.assertEqual(rows[-1], [None, None, None, None, last])

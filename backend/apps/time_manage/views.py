@@ -250,6 +250,10 @@ class CheckSemesterInfoAPIView(APIView):
         return Response([semester_ids.get(sem) for sem in [1, 2]])
 
 
+# A century of days, checktime/ lists at most.
+CHECKTIME_MAX_DAYS = 36600
+
+
 class CheckTimeInfoAPIView(APIView):
     def get(
         self, request, start_year, start_month, start_day, end_year, end_month, end_day
@@ -264,6 +268,15 @@ class CheckTimeInfoAPIView(APIView):
 
         if start_date > end_date:
             return Response({"error": "Start date must be before end date"}, status=400)
+
+        # The answer has a row for each day: 1000-01-01 to 9999-12-31 took
+        # 7 s and 0.7 GB for an 89 MB body. The session page asks for at
+        # most ten years each way.
+        if (end_date - start_date).days >= CHECKTIME_MAX_DAYS:
+            return Response(
+                {"error": f"The range must be at most {CHECKTIME_MAX_DAYS} days"},
+                status=400,
+            )
 
         # One query for the whole range; (time, date) is unique.
         session_ids = {
