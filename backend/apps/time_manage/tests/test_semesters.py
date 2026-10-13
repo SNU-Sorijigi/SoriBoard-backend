@@ -58,8 +58,8 @@ class CheckSemesterTests(APITestCase):
 
 class SemesterBoundsTests(APITestCase):
     """A semester is the 1st or 2nd of a year, with at least one 타임 a day
-    and at most one a minute. Anything else could not be shown or used, so it
-    is refused."""
+    and at most one a minute, ending its day after it starts. Anything else
+    could not be shown or used, so it is refused."""
 
     # What 학기 생성 and 학기 수정 send.
     create_body = {
@@ -191,6 +191,80 @@ class SemesterBoundsTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["semester_num"], 3)
         self.assertEqual(response.json()["total_time"], 5)
+
+    # 운영 시작 and 운영 종료 the wrong way round, or equal: the semester page
+    # laid its 타임 out with negative lengths ("09:30~08:55").
+    backwards = [("17:40", "09:30"), ("09:30", "09:30"), ("09:30", "09:29")]
+
+    def test_an_end_at_or_before_the_start_is_400_and_not_created(self):
+        for start, end in self.backwards:
+            with self.subTest(start=start, end=end):
+                response = self.create(start_time=start, end_time=end)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(list(response.json()), ["end_time"])
+                self.assertFalse(Semester.objects.exists())
+
+    def test_an_edit_ending_at_or_before_the_start_is_400_and_keeps_the_timetable(
+        self,
+    ):
+        saved = Semester.objects.get(pk=self.create().json()["id"])
+        jigi = User.objects.create(name="김지기", major="음악학과", year_id="22")
+        cell = TimetableUnit.objects.get(timetable=saved.timetable, day=1, time=2)
+        cell.users.set([jigi])
+        cells = list(TimetableUnit.objects.filter(timetable=saved.timetable))
+
+        edits = [
+            # 학기 수정, with another 타임 count that would rebuild the cells.
+            {**self.edit_body, "total_time": 5, "start_time": start, "end_time": end}
+            for start, end in self.backwards
+        ] + [
+            # One time only: checked against the semester's other one.
+            {"end_time": "09:00"},
+            {"start_time": "18:00"},
+        ]
+        for body in edits:
+            with self.subTest(body=body):
+                response = self.client.put(
+                    reverse("semester-detail", args=[saved.id]), body, format="json"
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(list(response.json()), ["end_time"])
+                semester = Semester.objects.get(pk=saved.pk)
+                self.assertEqual(
+                    (
+                        str(semester.start_time),
+                        str(semester.end_time),
+                        semester.total_time,
+                    ),
+                    ("09:30:00", "17:40:00", 4),
+                )
+                self.assertEqual(
+                    list(TimetableUnit.objects.filter(timetable=saved.timetable)),
+                    cells,
+                )
+                self.assertEqual(list(cell.users.all()), [jigi])
+
+    def test_an_end_after_the_start_is_accepted(self):
+        response = self.create(start_time="09:30", end_time="09:31")
+        self.assertEqual(response.status_code, 201)
+        saved = Semester.objects.get(pk=response.json()["id"])
+        response = self.edit(saved, start_time="00:00", end_time="23:59")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["start_time"], "00:00:00")
+        self.assertEqual(response.json()["end_time"], "23:59:00")
+
+        # A semester saved before with its times backwards still takes an
+        # edit that leaves them alone, and one that puts them right.
+        old = Semester.objects.create(
+            year=2025, semester_num=1, start_time="17:40", end_time="09:30"
+        )
+        url = reverse("semester-detail", args=[old.id])
+        response = self.client.put(url, {"total_time": 5}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["total_time"], 5)
+        response = self.client.put(url, {"start_time": "08:00"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["start_time"], "08:00:00")
 
 
 class SemesterReadTests(APITestCase):

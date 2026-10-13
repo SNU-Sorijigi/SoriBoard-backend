@@ -109,6 +109,26 @@ class SemesterSerializer(serializers.ModelSerializer):
             "rest_time": {"min_value": -(2**63), "max_value": 2**63 - 1},
         }
 
+    def validate(self, attrs):
+        # The semester page lays the 타임 out from start_time to end_time on
+        # one day, so an end at or before the start gave 타임 of negative
+        # length. A PATCH may send one of them, so use the semester's other;
+        # a PATCH without either leaves them as they were saved.
+        if "start_time" in attrs or "end_time" in attrs:
+            start_time = (
+                attrs["start_time"]
+                if "start_time" in attrs
+                else self.instance.start_time
+            )
+            end_time = (
+                attrs["end_time"] if "end_time" in attrs else self.instance.end_time
+            )
+            if end_time <= start_time:
+                raise serializers.ValidationError(
+                    {"end_time": ["Must be after start_time."]}
+                )
+        return attrs
+
     def get_timetable_id(self, obj):
         # A deleted timetable (timetable/<id>/ DELETE, the admin) was a 500.
         try:
