@@ -167,14 +167,17 @@ def with_legacy_single_fields(data):
 
 class TimeInfoViewSet(viewsets.ViewSet):
     def list(self, request):
-        date = request.query_params.get("date")
-        time = request.query_params.get("time")
-        if date and time:
-            lookup = TimeInfoLookupSerializer(data={"date": date, "time": time})
-            lookup.is_valid(raise_exception=True)
-            queryset = TimeInfo.objects.filter(**lookup.validated_data).first()
-            return Response({"id": queryset.id if queryset else None})
-        return Response(status=status.HTTP_400_BAD_REQUEST)
+        # A blank date or time is a missing one. Both were answered with an
+        # empty 400; now the 400 names them, as it names malformed ones.
+        params = {
+            name: request.query_params[name]
+            for name in ("date", "time")
+            if request.query_params.get(name)
+        }
+        lookup = TimeInfoLookupSerializer(data=params)
+        lookup.is_valid(raise_exception=True)
+        queryset = TimeInfo.objects.filter(**lookup.validated_data).first()
+        return Response({"id": queryset.id if queryset else None})
 
     def retrieve(self, request, pk=None):
         # users and mentees are each read three ways by the serializer.

@@ -328,10 +328,20 @@ class TimeInfoLookupTests(APITestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.json(), {"id": expected})
 
-    def test_missing_or_blank_parameters_are_400(self):
-        for params in [{}, {"date": "2026-09-07"}, {"time": "2"}, {"date": ""}]:
+    def test_missing_or_blank_parameters_are_400_naming_them(self):
+        required = ["This field is required."]
+        for params, missing in [
+            ({}, ["date", "time"]),
+            ({"date": "2026-09-07"}, ["time"]),
+            ({"time": "2"}, ["date"]),
+            ({"date": "", "time": "2"}, ["date"]),
+            ({"date": "2026-09-07", "time": ""}, ["time"]),
+            ({"date": "", "time": ""}, ["date", "time"]),
+        ]:
             with self.subTest(params=params):
-                self.assertEqual(self.lookup(**params).status_code, 400)
+                response = self.lookup(**params)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json(), {name: required for name in missing})
 
     def test_malformed_parameters_are_400_naming_the_parameter(self):
         for date, time, field in [
