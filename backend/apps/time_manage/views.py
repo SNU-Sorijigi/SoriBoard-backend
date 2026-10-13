@@ -326,22 +326,29 @@ class SwapOrderView(APIView):
                     },
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            if time_music_upper.time_id == time_music_lower.time_id:
-                # Plays can share an order (a double-clicked 추가 sends the same
-                # one twice); swapping those would move nothing. Number the
-                # session 1..n in its listed order first.
-                plays = list(
-                    TimeMusic.objects.filter(time_id=time_music_upper.time_id)
-                    .only("order")
-                    .order_by("order", "id")
+            # ↑/↓ moves a play within its session's playlist. Swapped across
+            # two sessions, each play took the other's place number in a
+            # playlist it is not in.
+            if time_music_upper.time_id != time_music_lower.time_id:
+                return Response(
+                    {"error": "The two plays are in different sessions."},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-                if len({play.order for play in plays}) < len(plays):
-                    for number, play in enumerate(plays, start=1):
-                        play.order = number
-                    TimeMusic.objects.bulk_update(plays, ["order"])
-                    numbered = {play.id: play.order for play in plays}
-                    time_music_upper.order = numbered[time_music_upper.id]
-                    time_music_lower.order = numbered[time_music_lower.id]
+            # Plays can share an order (a double-clicked 추가 sends the same
+            # one twice); swapping those would move nothing. Number the
+            # session 1..n in its listed order first.
+            plays = list(
+                TimeMusic.objects.filter(time_id=time_music_upper.time_id)
+                .only("order")
+                .order_by("order", "id")
+            )
+            if len({play.order for play in plays}) < len(plays):
+                for number, play in enumerate(plays, start=1):
+                    play.order = number
+                TimeMusic.objects.bulk_update(plays, ["order"])
+                numbered = {play.id: play.order for play in plays}
+                time_music_upper.order = numbered[time_music_upper.id]
+                time_music_lower.order = numbered[time_music_lower.id]
             time_music_upper.order, time_music_lower.order = (
                 time_music_lower.order,
                 time_music_upper.order,

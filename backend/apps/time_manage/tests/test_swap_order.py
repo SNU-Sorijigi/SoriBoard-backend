@@ -66,6 +66,26 @@ class SwapOrderTests(APITestCase):
         self.assertEqual(self.listed(), [self.first.id, self.second.id, self.third.id])
         self.assertEqual(self.orders(), [1, 2, 3])
 
+    def test_plays_from_two_sessions_are_not_swapped(self):
+        # A tie, so a refused swap must not renumber this session either.
+        again = self.add_play(3)
+        other_session = TimeInfo.objects.create(
+            date=datetime.date(2026, 9, 7), time=3, arrival_time="13:20:00"
+        )
+        elsewhere = TimeMusic.objects.create(
+            time=other_session, order=7, source="CD", music=self.music
+        )
+        for pair in [(self.first, elsewhere), (elsewhere, again)]:
+            response = self.swap(*pair)
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(
+                response.json(), {"error": "The two plays are in different sessions."}
+            )
+        self.assertEqual(self.orders(), [1, 2, 3, 3, 7])
+        self.assertEqual(
+            self.listed(), [self.first.id, self.second.id, self.third.id, again.id]
+        )
+
     def test_plays_with_the_same_order_are_listed_by_id(self):
         # A double-clicked 추가 sends the same order twice.
         again = self.add_play(2)
