@@ -100,8 +100,10 @@ class SemesterSerializer(serializers.ModelSerializer):
             "year": {"min_value": 1, "max_value": 9998},
             # checksemester/ and the session calendar know only these two.
             "semester_num": {"min_value": 1, "max_value": 2},
-            # With no 타임 a semester has no timetable cells at all.
-            "total_time": {"min_value": 1},
+            # With no 타임 a semester has no timetable cells at all. A day holds
+            # at most one 타임 a minute: saving builds 7 cells a 타임, and a
+            # mistyped count held the server (100000: 30 s and 0.9 GB).
+            "total_time": {"min_value": 1, "max_value": 24 * 60},
             # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500).
             "rest_time": {"min_value": -(2**63), "max_value": 2**63 - 1},
         }

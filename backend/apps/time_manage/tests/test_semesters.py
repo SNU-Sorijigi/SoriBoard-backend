@@ -57,8 +57,9 @@ class CheckSemesterTests(APITestCase):
 
 
 class SemesterBoundsTests(APITestCase):
-    """A semester is the 1st or 2nd of a year, with at least one 타임 a day.
-    Anything else could not be shown or used, so it is refused."""
+    """A semester is the 1st or 2nd of a year, with at least one 타임 a day
+    and at most one a minute. Anything else could not be shown or used, so it
+    is refused."""
 
     # What 학기 생성 and 학기 수정 send.
     create_body = {
@@ -81,6 +82,10 @@ class SemesterBoundsTests(APITestCase):
         ("semester_num", -1),
         ("total_time", 0),
         ("total_time", -3),
+        # More than one 타임 a minute. Each 타임 is 7 timetable cells, so a
+        # mistyped count (4000000) made the save build them for minutes, or
+        # for ever. Larger values are left out: they hung without the bound.
+        ("total_time", 24 * 60 + 1),
         ("year", 0),
         ("year", -2026),
         ("year", 9999),
@@ -159,6 +164,19 @@ class SemesterBoundsTests(APITestCase):
                     TimetableUnit.objects.filter(timetable=semester.timetable).count(),
                     7,
                 )
+
+        # One 타임 a minute: a full grid of 7 × 1440 cells, created and edited.
+        response = self.create(year=2027, total_time=24 * 60)
+        self.assertEqual(response.status_code, 201)
+        semester = Semester.objects.get(pk=response.json()["id"])
+        self.assertEqual(semester.timetable.units.count(), 7 * 24 * 60)
+        self.assertEqual(len(semester.timetable.table["6"]), 24 * 60)
+        response = self.edit(semester, total_time=24 * 60 - 1)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(semester.timetable.units.count(), 7 * (24 * 60 - 1))
+        response = self.edit(semester, total_time=24 * 60)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(semester.timetable.units.count(), 7 * 24 * 60)
 
         # The last year whose 2nd semester the stats can still read.
         last = Semester.objects.get(year=9998)
