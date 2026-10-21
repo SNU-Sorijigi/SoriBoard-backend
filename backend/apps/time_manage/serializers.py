@@ -1,13 +1,45 @@
+from django.db import models, transaction
+from django.db.models import Prefetch
 from rest_framework import serializers
 from .models import *
 
 
+class BlankAsNullIntegerField(serializers.IntegerField):
+    """An emptied number input sends "": read it as no number, as DRF does for forms."""
+
+    def validate_empty_values(self, data):
+        return super().validate_empty_values(None if data == "" else data)
+
+
+class SQLitePrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
+    """An id past SQLite's 64-bit INTEGER is a missing one: the driver raised
+    OverflowError (500), which DRF's field does not catch."""
+
+    def to_internal_value(self, data):
+        try:
+            return super().to_internal_value(data)
+        except OverflowError:
+            self.fail("does_not_exist", pk_value=data)
+
+
 class UserSerializer(serializers.ModelSerializer):
+    serializer_related_field = SQLitePrimaryKeyRelatedField
     sabu_info = serializers.SerializerMethodField()
+    # 지기 설정 sends "" when 입부 년도 or 학기 (the integer fields, both
+    # optional) is left empty. Mapped, not declared, to keep the field order.
+    serializer_field_mapping = {
+        **serializers.ModelSerializer.serializer_field_mapping,
+        models.IntegerField: BlankAsNullIntegerField,
+    }
 
     class Meta:
         model = User
         fields = "__all__"
+        # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500).
+        extra_kwargs = {
+            name: {"min_value": -(2**63), "max_value": 2**63 - 1}
+            for name in ("join_year", "join_semester")
+        }
 
     def get_sabu_info(self, obj):
         if obj.sabu_id:
@@ -64,25 +96,95 @@ class SemesterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Semester
         fields = "__all__"
+        extra_kwargs = {
+            # stats reads a 2nd semester up to the next year's February.
+            "year": {"min_value": 1, "max_value": 9998},
+            # checksemester/ and the session calendar know only these two.
+            "semester_num": {"min_value": 1, "max_value": 2},
+            # With no 타임 a semester has no timetable cells at all. A day holds
+            # at most one 타임 a minute: saving builds 7 cells a 타임, and a
+            # mistyped count held the server (100000: 30 s and 0.9 GB).
+            "total_time": {"min_value": 1, "max_value": 24 * 60},
+            # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500).
+            "rest_time": {"min_value": -(2**63), "max_value": 2**63 - 1},
+        }
+
+    def validate(self, attrs):
+        # The semester page lays the 타임 out from start_time to end_time on
+        # one day, so an end at or before the start gave 타임 of negative
+        # length. A PATCH may send one of them, so use the semester's other;
+        # a PATCH without either leaves them as they were saved.
+        if "start_time" in attrs or "end_time" in attrs:
+            start_time = (
+                attrs["start_time"]
+                if "start_time" in attrs
+                else self.instance.start_time
+            )
+            end_time = (
+                attrs["end_time"] if "end_time" in attrs else self.instance.end_time
+            )
+            if end_time <= start_time:
+                raise serializers.ValidationError(
+                    {"end_time": ["Must be after start_time."]}
+                )
+        return attrs
 
     def get_timetable_id(self, obj):
-        timetable = Timetable.objects.get(semester=obj)
-        return timetable.id if timetable else None
+        # A deleted timetable (timetable/<id>/ DELETE, the admin) was a 500.
+        try:
+            return obj.timetable.id
+        except Timetable.DoesNotExist:
+            return None
 
 
 class TimetableSerializer(serializers.ModelSerializer):
+    serializer_related_field = SQLitePrimaryKeyRelatedField
+
     class Meta:
         model = Timetable
         fields = "__all__"
 
 
 class TimetableUnitSerializer(serializers.ModelSerializer):
+    serializer_related_field = SQLitePrimaryKeyRelatedField
     jigi_info = serializers.SerializerMethodField()
     mentee_info = serializers.SerializerMethodField()
 
     class Meta:
         model = TimetableUnit
         fields = "__all__"
+        extra_kwargs = {
+            # Timetable.update_table has weekdays 0 to 6; a cell on another day
+            # made it fail, and with it every later edit of the timetable.
+            "day": {"min_value": 0, "max_value": 6},
+            # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500).
+            "time": {"min_value": 1, "max_value": 2**63 - 1},
+        }
+
+    def validate(self, attrs):
+        # It has 타임 1 to the semester's total_time: a cell past that fell
+        # out of the timetable. PATCH may send neither, so use the cell's.
+        timetable = (
+            attrs["timetable"] if "timetable" in attrs else self.instance.timetable
+        )
+        time = attrs["time"] if "time" in attrs else self.instance.time
+        total_time = timetable.semester.total_time
+        if time > total_time:
+            message = self.fields["time"].error_messages["max_value"]
+            raise serializers.ValidationError(
+                {"time": [message.format(max_value=total_time)]}
+            )
+        return attrs
+
+    def update(self, instance, validated_data):
+        # Saving a cell rewrites the table of the timetable it is on. Moved to
+        # another timetable, it stayed in the old one's table too, and that
+        # semester's page showed the other semester's cell in its grid.
+        old_timetable_id = instance.timetable_id
+        cell = super().update(instance, validated_data)
+        if cell.timetable_id != old_timetable_id:
+            Timetable.objects.get(pk=old_timetable_id).update_table()
+        return cell
 
     def get_jigi_info(self, obj):
         return [f"{jigi.name} {jigi.major} {jigi.year_id}" for jigi in obj.users.all()]
@@ -97,9 +199,19 @@ class SemesterUserSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class BlankAsNullTimeField(serializers.TimeField):
+    """A cleared time input sends "": read it as no time, as DRF does for forms."""
+
+    def validate_empty_values(self, data):
+        return super().validate_empty_values(None if data == "" else data)
+
+
 class TimeInfoSerializer(serializers.ModelSerializer):
+    serializer_related_field = SQLitePrimaryKeyRelatedField
     jigi_info = serializers.SerializerMethodField()
     mentee_info = serializers.SerializerMethodField()
+    # The session forms send "" when no 견습 arrival time is entered.
+    mentee_arrival_time = BlankAsNullTimeField(allow_null=True, required=False)
     # Backward-compat single fields
     user = serializers.SerializerMethodField()
     mentee = serializers.SerializerMethodField()
@@ -123,6 +235,12 @@ class TimeInfoSerializer(serializers.ModelSerializer):
             "jigi_info",
             "mentee_info",
         ]
+        extra_kwargs = {
+            # checktime/ and the session calendar start at 타임 1, so a session
+            # on 타임 0 or below was saved but never shown. Past SQLite's 64-bit
+            # INTEGER the driver raises OverflowError (500).
+            "time": {"min_value": 1, "max_value": 2**63 - 1},
+        }
 
     def get_jigi_info(self, obj):
         return [f"{u.name} {u.major} {u.year_id}" for u in obj.users.all()]
@@ -137,6 +255,22 @@ class TimeInfoSerializer(serializers.ModelSerializer):
     def get_mentee(self, obj):
         first = obj.mentees.first()
         return first.id if first else None
+
+
+class TimeInfoLookupSerializer(serializers.Serializer):
+    """Query of GET timeinfo/: a malformed date or time is a 400, not a 500."""
+
+    date = serializers.DateField()
+    # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500).
+    time = serializers.IntegerField(min_value=-(2**63), max_value=2**63 - 1)
+
+
+def players_as_typed():
+    """Prefetch a play's players in the order they were typed: the order of
+    their rows in the play-player table. Unordered, SQLite listed them by
+    player id, so a player saved before for another play came first."""
+    table = TimeMusic.players.through._meta.db_table
+    return Prefetch("players", queryset=Player.objects.extra(order_by=[f"{table}.id"]))
 
 
 class TimeMusicListSerializer(serializers.ModelSerializer):
@@ -199,7 +333,14 @@ class TimeInfoDetailSerializer(serializers.ModelSerializer):
         ]
 
     def get_time_music(self, obj):
-        queryset = obj.timeplaylist.all().order_by("order")
+        # Everything TimeMusicListSerializer reads, in two queries, not ~5 per play.
+        queryset = (
+            obj.timeplaylist.select_related(
+                "music__composer", "music_detail", "conductor", "orchestra"
+            )
+            .prefetch_related(players_as_typed())
+            .order_by("order", "id")  # swaporder/ counts on ties going by id
+        )
         return TimeMusicListSerializer(queryset, many=True, read_only=True).data
 
     def get_jigi_info(self, obj):
@@ -217,7 +358,19 @@ class TimeInfoDetailSerializer(serializers.ModelSerializer):
         return first.id if first else None
 
 
+def first_or_create(model, **fields):
+    """The oldest row with these fields, or a new one.
+
+    Names are not unique (the admin can add a second "모차르트"), and
+    get_or_create() raised MultipleObjectsReturned (500) for every play that
+    named a duplicated composer, music, detail, conductor, orchestra or player.
+    """
+    row = model.objects.filter(**fields).order_by("id").first()
+    return row if row is not None else model.objects.create(**fields)
+
+
 class TimeMusicSerializer(serializers.ModelSerializer):
+    serializer_related_field = SQLitePrimaryKeyRelatedField
     title = serializers.CharField(write_only=True)
     semi_title = serializers.CharField(
         write_only=True, allow_blank=True, required=False
@@ -240,6 +393,8 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         fields = "__all__"
         extra_kwargs = {
             "source": {"allow_blank": False},
+            # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500).
+            "order": {"min_value": -(2**63), "max_value": 2**63 - 1},
             "music": {"read_only": True},
             "music_detail": {"read_only": True},
             "conductor": {"read_only": True},
@@ -247,31 +402,55 @@ class TimeMusicSerializer(serializers.ModelSerializer):
             "players": {"read_only": True},
         }
 
+    def validate_player_names(self, value):
+        # create() and update() split each non-blank row on ": ".
+        malformed = [row for row in value if row and len(row.split(": ")) != 2]
+        if malformed:
+            raise serializers.ValidationError(
+                [f'"{row}" is not "instrument: name".' for row in malformed]
+            )
+        return value
+
+    def validate_conductor_name(self, value):
+        # update() splits it on ": " (the edit form shows "지휘: " + name);
+        # create() takes the name as it is.
+        if self.instance is not None and value and len(value.split(": ")) != 2:
+            raise serializers.ValidationError(f'"{value}" is not "role: name".')
+        return value
+
+    def validate(self, attrs):
+        # PUT is partial (the edit form sends no time or order), but update()
+        # rebuilds the music from these two, so a PUT needs them too.
+        missing = [name for name in ("title", "composer_name") if name not in attrs]
+        if missing:
+            raise serializers.ValidationError(
+                {name: self.fields[name].error_messages["required"] for name in missing}
+            )
+        return attrs
+
+    # A play is written whole or not at all, never without its players.
+    @transaction.atomic
     def create(self, validated_data):
         composer_name = validated_data.pop("composer_name", "")
-        composer, _ = Composer.objects.get_or_create(name=composer_name)
+        composer = first_or_create(Composer, name=composer_name)
 
         conductor_name = validated_data.pop("conductor_name", "")
-        conductor, _ = (
-            Conductor.objects.get_or_create(name=conductor_name)
-            if conductor_name
-            else (None, False)
+        conductor = (
+            first_or_create(Conductor, name=conductor_name) if conductor_name else None
         )
 
         orchestra_name = validated_data.pop("orchestra_name", "")
-        orchestra, _ = (
-            Orchestra.objects.get_or_create(name=orchestra_name)
-            if orchestra_name
-            else (None, False)
+        orchestra = (
+            first_or_create(Orchestra, name=orchestra_name) if orchestra_name else None
         )
 
         title = validated_data.pop("title")
         semi_title = validated_data.pop("semi_title", None)
-        music, _ = Music.objects.get_or_create(title=title, composer=composer)
-        music_detail, _ = (
-            MusicDetail.objects.get_or_create(music=music, semi_title=semi_title)
+        music = first_or_create(Music, title=title, composer=composer)
+        music_detail = (
+            first_or_create(MusicDetail, music=music, semi_title=semi_title)
             if semi_title
-            else (None, False)
+            else None
         )
 
         player_names = validated_data.pop("player_names", [])
@@ -287,13 +466,14 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         for player_name in player_names:
             if player_name:
                 instrument, name = player_name.split(": ")
-                player, _ = Player.objects.get_or_create(
-                    instrument=instrument.strip(), name=name.strip()
+                player = first_or_create(
+                    Player, instrument=instrument.strip(), name=name.strip()
                 )
                 time_music.players.add(player)
 
         return time_music
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         player_names = validated_data.pop("player_names", [])
         title = validated_data.pop("title")
@@ -302,26 +482,26 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         conductor_name = validated_data.pop("conductor_name", None)
         orchestra_name = validated_data.pop("orchestra_name", None)
 
-        composer, _ = Composer.objects.get_or_create(name=composer_name)
+        composer = first_or_create(Composer, name=composer_name)
 
         if conductor_name:
             _, conductor_name = conductor_name.split(": ")
-            conductor, _ = Conductor.objects.get_or_create(name=conductor_name)
+            conductor = first_or_create(Conductor, name=conductor_name)
             instance.conductor = conductor
         else:
             instance.conductor = None
 
         if orchestra_name:
-            orchestra, _ = Orchestra.objects.get_or_create(name=orchestra_name)
+            orchestra = first_or_create(Orchestra, name=orchestra_name)
             instance.orchestra = orchestra
         else:
             instance.orchestra = None
 
-        music, _ = Music.objects.get_or_create(title=title, composer=composer)
+        music = first_or_create(Music, title=title, composer=composer)
 
         if semi_title:
-            music_detail, _ = MusicDetail.objects.get_or_create(
-                music=music, semi_title=semi_title
+            music_detail = first_or_create(
+                MusicDetail, music=music, semi_title=semi_title
             )
             instance.music_detail = music_detail
         else:
@@ -336,11 +516,12 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         if player_names:
             instance.players.clear()
             for player_name in player_names:
-                instrument, name = player_name.split(": ")
-                player, _ = Player.objects.get_or_create(
-                    instrument=instrument.strip(), name=name.strip()
-                )
-                instance.players.add(player)
+                if player_name:
+                    instrument, name = player_name.split(": ")
+                    player = first_or_create(
+                        Player, instrument=instrument.strip(), name=name.strip()
+                    )
+                    instance.players.add(player)
         else:
             instance.players.clear()
 

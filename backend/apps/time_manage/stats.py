@@ -10,6 +10,8 @@ play history = TimeMusic ⨝ TimeInfo. 모든 엔드포인트는 공통 필터(`
         "values": [...],           # labels 와 1:1 대응하는 수치
         "items":  [{id, name, count}, ...]  # drill-down 용 식별자 포함
     }
+
+필터 파라미터 형식이 틀리면 400 과 DRF 필드별 오류(예: {"start": [...]})를 돌려준다.
 """
 
 import datetime
@@ -18,6 +20,7 @@ from collections import defaultdict
 
 from django.db.models import Count, Max, Min, Q
 from django.db.models.functions import TruncMonth, TruncWeek
+from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -39,8 +42,12 @@ ERA_ORDER = [label for label, _ in ERA_BUCKETS] + ["미상"]
 
 
 def era_for(birth_year, override=None):
-    """출생년도(+보정)를 시대 라벨로 변환."""
-    if override:
+    """출생년도(+보정)를 시대 라벨로 변환.
+
+    보정값은 admin 에서 자유 입력이라, ERA_ORDER 에 없는 라벨(예: "20세기")은
+    무시하고 출생년도로 분류한다. 그대로 쓰면 차트 어느 칸에도 들지 않았다.
+    """
+    if override in ERA_ORDER:
         return override
     if birth_year is None:
         return "미상"
@@ -55,7 +62,7 @@ def era_counts(qs):
     rows = qs.values(
         "music__composer__birth_year",
         "music__composer__era_override",
-    ).annotate(count=Count("id"))
+    ).annotate(count=Count("id", distinct=True))
     buckets = {label: 0 for label in ERA_ORDER}
     for row in rows:
         era = era_for(
@@ -237,10 +244,24 @@ def _semester_date_range(semester_id):
             datetime.date(semester.year, 3, 1),
             datetime.date(semester.year, 8, 31),
         )
+    # 2월 말일은 다음 해 3/1 의 전날(윤년이면 2/29).
     return (
         datetime.date(semester.year, 9, 1),
-        datetime.date(semester.year + 1, 2, 28),
+        datetime.date(semester.year + 1, 3, 1) - datetime.timedelta(days=1),
     )
+
+
+# id 는 SQLite INTEGER(64비트) 범위여야 한다. 넘으면 DB 드라이버가 OverflowError(500).
+_ID_RANGE = {"min_value": -(2**63), "max_value": 2**63 - 1}
+
+
+class StatsFilterSerializer(serializers.Serializer):
+    """공통 필터 파라미터 검증. 빈 값(?start=)은 지정하지 않은 것으로 본다."""
+
+    start = serializers.DateField(required=False)
+    end = serializers.DateField(required=False)
+    semester_id = serializers.IntegerField(required=False, **_ID_RANGE)
+    user_id = serializers.IntegerField(required=False, **_ID_RANGE)
 
 
 def build_timemusic_filter(params):
@@ -248,31 +269,34 @@ def build_timemusic_filter(params):
 
     지원 파라미터: start, end (YYYY-MM-DD), semester_id, user_id, include_mentees.
     적용된 필터 정보를 함께 돌려준다(응답 봉투의 filters 필드).
+    start/end/semester_id/user_id 형식이 틀리면 ValidationError(400)를 던진다.
     """
+    filters = StatsFilterSerializer(data=params)
+    filters.is_valid(raise_exception=True)
     q = Q()
     applied = {"scope": "all"}
 
-    start = params.get("start")
-    end = params.get("end")
-    semester_id = params.get("semester_id")
+    start = filters.validated_data.get("start")
+    end = filters.validated_data.get("end")
+    semester_id = filters.validated_data.get("semester_id")
 
-    if semester_id:
+    if semester_id is not None:
         s_start, s_end = _semester_date_range(semester_id)
         if s_start:
             q &= Q(time__date__gte=s_start, time__date__lte=s_end)
-            applied["semester_id"] = semester_id
+            applied["semester_id"] = str(semester_id)
             applied["start"] = str(s_start)
             applied["end"] = str(s_end)
     else:
         if start:
             q &= Q(time__date__gte=start)
-            applied["start"] = start
+            applied["start"] = str(start)
         if end:
             q &= Q(time__date__lte=end)
-            applied["end"] = end
+            applied["end"] = str(end)
 
-    user_id = params.get("user_id")
-    if user_id:
+    user_id = filters.validated_data.get("user_id")
+    if user_id is not None:
         include_mentees = str(params.get("include_mentees", "")).lower() in (
             "1",
             "true",
@@ -283,7 +307,7 @@ def build_timemusic_filter(params):
         else:
             q &= Q(time__users__id=user_id)
         applied["scope"] = "individual"
-        applied["user_id"] = int(user_id)
+        applied["user_id"] = user_id
         applied["include_mentees"] = include_mentees
 
     return q, applied
@@ -293,6 +317,9 @@ def base_queryset(request):
     """필터가 적용된 TimeMusic 쿼리셋과 filters 정보를 반환.
 
     M2M(time__users) 조인 시 중복 행이 생길 수 있어 distinct() 적용.
+    distinct() 는 values().annotate() 그룹 안의 중복 행은 없애지 못하므로
+    그룹별 선곡 수는 Count("id", distinct=True) 로 센다(include_mentees 의
+    users·mentees 조인은 한 곡을 여러 행으로 만든다).
     """
     q, applied = build_timemusic_filter(request.query_params)
     qs = TimeMusic.objects.filter(q).distinct()
@@ -311,7 +338,7 @@ def _top_by(qs, group_field, name_field, limit, id_field=None):
     id_field = id_field or group_field
     rows = (
         qs.values(id_field, name_field)
-        .annotate(count=Count("id"))
+        .annotate(count=Count("id", distinct=True))
         .order_by("-count")[:limit]
     )
     labels, values, items = [], [], []
@@ -382,7 +409,7 @@ class TopWorksStatsView(APIView):
         rows = (
             qs.exclude(music__isnull=True)
             .values("music__id", "music__title", "music__composer__name")
-            .annotate(count=Count("id"))
+            .annotate(count=Count("id", distinct=True))
             .order_by("-count")[:limit]
         )
         labels, values, items = [], [], []
@@ -491,6 +518,8 @@ class PlaysOverTimeStatsView(APIView):
         qs, applied = base_queryset(request)
         total = qs.count()
         bucket = request.query_params.get("bucket", "month")
+        if bucket not in ("week", "month", "semester"):
+            bucket = "month"
 
         if bucket == "week":
             trunc = TruncWeek("time__date")
@@ -500,7 +529,7 @@ class PlaysOverTimeStatsView(APIView):
         rows = (
             qs.annotate(period=trunc)
             .values("period")
-            .annotate(count=Count("id"))
+            .annotate(count=Count("id", distinct=True))
             .order_by("period")
         )
 

@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 
 
 # 지기 정보
@@ -36,50 +36,43 @@ class Semester(models.Model):
         unique_together = ("year", "semester_num")
 
     def save(self, *args, **kwargs):
-        if self.pk:
-            old_semester = Semester.objects.get(pk=self.pk)
-            if old_semester.total_time != self.total_time:
-                self.update_timetable_structure()
+        # The semester and its timetable change together or not at all.
+        with transaction.atomic():
+            if self.pk:
+                old_semester = Semester.objects.get(pk=self.pk)
+                # Without a timetable (deleted), the code below builds one.
+                if old_semester.total_time != self.total_time and hasattr(
+                    self, "timetable"
+                ):
+                    self.update_timetable_structure()
 
-        super().save(*args, **kwargs)
+            super().save(*args, **kwargs)
 
-        if not hasattr(self, "timetable"):
-            Timetable.objects.create(
-                semester=self,
-                table={
-                    str(day): {
-                        str(time): None for time in range(1, self.total_time + 1)
-                    }
-                    for day in range(7)
-                },
-            )
-            for day in range(7):
-                for time in range(1, self.total_time + 1):
-                    TimetableUnit.objects.create(
-                        timetable=self.timetable,
-                        day=day,
-                        time=time,
-                    )
+            if not hasattr(self, "timetable"):
+                Timetable.objects.create(
+                    semester=self,
+                    table={
+                        str(day): {
+                            str(time): None for time in range(1, self.total_time + 1)
+                        }
+                        for day in range(7)
+                    },
+                )
+                self.create_timetable_units()
 
     def update_timetable_structure(self):
-        timetable = self.timetable
-        TimetableUnit.objects.filter(timetable=timetable).delete()
+        TimetableUnit.objects.filter(timetable=self.timetable).delete()
+        self.create_timetable_units()
 
-        new_table = {
-            str(day): {str(time): None for time in range(1, self.total_time + 1)}
+    def create_timetable_units(self):
+        # One INSERT and one table rewrite: saving cell by cell rewrote the
+        # table after every cell (3 queries a cell).
+        TimetableUnit.objects.bulk_create(
+            TimetableUnit(timetable=self.timetable, day=day, time=time)
             for day in range(7)
-        }
-
-        timetable.table = new_table
-        timetable.save()
-
-        for day in range(7):
-            for time in range(1, self.total_time + 1):
-                TimetableUnit.objects.create(
-                    timetable=timetable,
-                    day=day,
-                    time=time,
-                )
+            for time in range(1, self.total_time + 1)
+        )
+        self.timetable.update_table()
 
 
 # 학기별 타임시간표

@@ -237,6 +237,51 @@ class RecentPlaysTests(APITestCase):
         self.assertEqual(result["works"][0]["last_played"], "2027-01-07")
         self.assertEqual(result["works"][0]["days_since_last_played"], 3)
 
+    def test_a_session_in_the_first_days_of_year_one_gets_its_hints(self):
+        # Its windows start on 0001-01-01; they overflowed the date arithmetic.
+        self.reference_date = datetime.date(1, 1, 3)
+        self.session.date = self.reference_date
+        self.session.save(update_fields=["date"])
+        name = "세르게이 라흐마니노프"
+        for days_ago in (0, 2):
+            self.play(name, "피아노 협주곡 제2번 Op. 18", days_ago=days_ago)
+
+        result = self.lookup(name, "피아노")
+        self.assertEqual(result["reference_date"], "0001-01-03")
+        composer = result["composers"][0]
+        self.assertEqual(
+            [composer[f"count_{n}d"] for n in (1, 7, 30)],
+            [1, 2, 2],
+        )
+        self.assertEqual(result["works"][0]["count_30d"], 2)
+
+        response = self.client.get(
+            reverse("check-duplicate"),
+            {"time_id": self.session.id, "composer_name": name, "title": "Op. 18"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertCountEqual(
+            [item["date"] for item in response.json()["duplicates"]],
+            ["0001-01-03", "0001-01-01"],
+        )
+
+    def test_session_id_past_the_database_range_is_400(self):
+        # SQLite's INTEGER is 64-bit; a larger id made the lookup a 500.
+        for endpoint in ("recent-plays", "check-duplicate"):
+            for time_id, expected_status in (
+                (2**63 - 1, 404),
+                (2**63, 400),
+                (10**30, 400),
+            ):
+                with self.subTest(endpoint=endpoint, time_id=time_id):
+                    params = {
+                        "time_id": time_id,
+                        "composer_name": "세르게이",
+                        "title": "Op. 18",
+                    }
+                    response = self.client.get(reverse(endpoint), params)
+                    self.assertEqual(response.status_code, expected_status)
+
     def test_missing_invalid_or_unknown_session_never_falls_back_to_today(self):
         for endpoint in ("recent-plays", "check-duplicate"):
             for time_id, expected_status in (
