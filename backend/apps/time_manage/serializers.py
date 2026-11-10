@@ -1,7 +1,11 @@
+import re
+
 from django.db import models, transaction
 from django.db.models import Prefetch
+from django.utils import timezone
 from rest_framework import serializers
 from .models import *
+from .stats import ERA_ORDER, StatsFilterSerializer, era_for
 
 
 class BlankAsNullIntegerField(serializers.IntegerField):
@@ -50,10 +54,45 @@ class UserSerializer(serializers.ModelSerializer):
 
 class ComposerSerializer(serializers.ModelSerializer):
     num_time_music = serializers.IntegerField(read_only=True)
+    # The 시대 the stats count the composer in: era_override when it is one of
+    # ERA_ORDER, else from birth_year, else 미상.
+    era = serializers.SerializerMethodField()
+    # PATCH corrects these two, the values era is computed from. Empty (null
+    # or "") clears them.
+    birth_year = BlankAsNullIntegerField(
+        required=False, allow_null=True, min_value=1000
+    )
+    era_override = serializers.ChoiceField(
+        ERA_ORDER, required=False, allow_null=True, allow_blank=True
+    )
 
     class Meta:
         model = Composer
-        fields = ["id", "name", "num_time_music"]
+        fields = ["id", "name", "num_time_music", "birth_year", "era_override", "era"]
+        read_only_fields = ["name"]
+
+    def get_era(self, obj):
+        return era_for(obj.birth_year, obj.era_override)
+
+    def validate_birth_year(self, value):
+        this_year = timezone.localdate().year
+        if value is not None and value > this_year:
+            raise serializers.ValidationError(
+                f"Ensure this value is less than or equal to {this_year}."
+            )
+        return value
+
+    def validate_era_override(self, value):
+        return value or None
+
+
+class ComposerQuerySerializer(serializers.Serializer):
+    """Query of GET composers/: q (name contains) and limit. A blank value is
+    no filter."""
+
+    q = serializers.CharField(required=False, allow_blank=True)
+    # Past SQLite's 64-bit INTEGER the driver raises OverflowError (500).
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=2**63 - 1)
 
 
 class ComposerNameSerializer(serializers.ModelSerializer):
@@ -305,6 +344,46 @@ class TimeMusicListSerializer(serializers.ModelSerializer):
         ]
 
 
+class PlaySerializer(TimeMusicListSerializer):
+    """A row of plays/: the session list's fields, its session and its ids."""
+
+    time_id = serializers.IntegerField(read_only=True)
+    date = serializers.DateField(source="time.date", read_only=True)
+    time = serializers.IntegerField(source="time.time", read_only=True)
+    composer_id = serializers.IntegerField(
+        source="music.composer_id", read_only=True, allow_null=True
+    )
+    music_id = serializers.IntegerField(read_only=True)
+    jigi_names = serializers.SerializerMethodField()
+    mentee_names = serializers.SerializerMethodField()
+
+    class Meta(TimeMusicListSerializer.Meta):
+        fields = TimeMusicListSerializer.Meta.fields + [
+            "time_id",
+            "date",
+            "time",
+            "composer_id",
+            "music_id",
+            "jigi_names",
+            "mentee_names",
+        ]
+
+    def get_jigi_names(self, obj):
+        return [user.name for user in obj.time.users.all()]
+
+    def get_mentee_names(self, obj):
+        return [user.name for user in obj.time.mentees.all()]
+
+
+class PlaysQuerySerializer(StatsFilterSerializer):
+    """Query of GET plays/: the stats filter, q and requested. A blank value
+    (?start=) is no filter."""
+
+    q = serializers.CharField(required=False, allow_blank=True)
+    # Without default=None a missing ?requested= would read as False.
+    requested = serializers.BooleanField(allow_null=True, default=None)
+
+
 class TimeInfoDetailSerializer(serializers.ModelSerializer):
     jigi_info = serializers.SerializerMethodField()
     mentee_info = serializers.SerializerMethodField()
@@ -412,11 +491,20 @@ class TimeMusicSerializer(serializers.ModelSerializer):
         return value
 
     def validate_conductor_name(self, value):
-        # update() splits it on ": " (the edit form shows "지휘: " + name);
-        # create() takes the name as it is.
-        if self.instance is not None and value and len(value.split(": ")) != 2:
-            raise serializers.ValidationError(f'"{value}" is not "role: name".')
-        return value
+        # create() takes the name as it is. The edit form shows "지휘: " +
+        # the name, or nothing; a name typed into that empty field comes
+        # alone, and a cleared name leaves "지휘:" (DRF trims the space).
+        if self.instance is None or not value:
+            return value
+        if ": " in value:
+            parts = value.split(": ")
+            if len(parts) == 2:
+                return parts[1].strip()
+        elif re.fullmatch(r"[^:]*:", value):
+            return ""
+        elif ":" not in value:
+            return value
+        raise serializers.ValidationError(f'"{value}" is not "role: name".')
 
     def validate(self, attrs):
         # PUT is partial (the edit form sends no time or order), but update()
@@ -484,8 +572,8 @@ class TimeMusicSerializer(serializers.ModelSerializer):
 
         composer = first_or_create(Composer, name=composer_name)
 
+        # validate_conductor_name() left just the name, or "" for none.
         if conductor_name:
-            _, conductor_name = conductor_name.split(": ")
             conductor = first_or_create(Conductor, name=conductor_name)
             instance.conductor = conductor
         else:

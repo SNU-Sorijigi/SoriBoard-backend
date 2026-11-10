@@ -1,4 +1,5 @@
-from rest_framework import generics, viewsets, status, serializers
+from rest_framework import generics, mixins, viewsets, status, serializers
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from collections.abc import Mapping
@@ -7,8 +8,9 @@ import re
 from .models import *
 from .serializers import *
 from django.db import transaction
-from django.db.models import Count, prefetch_related_objects
+from django.db.models import Count, Q, prefetch_related_objects
 from django.http import Http404
+from .stats import build_timemusic_filter
 
 
 def get_object_or_404(queryset, *filter_args, **filter_kwargs):
@@ -374,13 +376,33 @@ class SwapOrderView(APIView):
         return Response({"message": "Order swapped successfully."})
 
 
-class ComposerViewSet(SQLiteIdMixin, viewsets.ReadOnlyModelViewSet):
+class ComposerViewSet(
+    SQLiteIdMixin, mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet
+):
+    """Composers, most played first (ties by name, then id). The list takes
+    ?q= (name contains) and ?limit= (the first n); without them it lists
+    every composer. PATCH corrects one composer's birth_year and era_override;
+    there is no PUT."""
+
     serializer_class = ComposerSerializer
+    http_method_names = ["get", "patch", "head", "options"]
 
     def get_queryset(self):
-        return Composer.objects.annotate(
+        composers = Composer.objects.annotate(
             num_time_music=Count("musics__timemusic")
-        ).order_by("-num_time_music")
+        ).order_by("-num_time_music", "name", "id")
+        if self.action != "list":
+            return composers
+
+        query = ComposerQuerySerializer(data=self.request.query_params)
+        query.is_valid(raise_exception=True)
+        q = query.validated_data.get("q", "").strip()
+        if q:
+            composers = composers.filter(name__icontains=q)
+        limit = query.validated_data.get("limit")
+        if limit is not None:
+            composers = composers[:limit]
+        return composers
 
 
 class MusicViewSet(SQLiteIdMixin, viewsets.ReadOnlyModelViewSet):
@@ -504,6 +526,60 @@ class RecentPlaysView(APIView):
                 "composers": list(composers.values()),
                 "works": list(works.values()),
             }
+        )
+
+
+class PlaysPagination(LimitOffsetPagination):
+    # The settings have no PAGE_SIZE: without a default_limit the stock class
+    # answers a bare list when ?limit= is missing.
+    default_limit = 50
+    max_limit = 100
+
+
+class PlaysView(generics.ListAPIView):
+    """Plays across all 타임, newest first, in pages of {count, next, previous,
+    results}. ?q= matches composer, title, 세부 제목, a player's name or
+    instrument, conductor or orchestra. The stats filter (build_timemusic_filter:
+    start, end, semester_id, user_id with include_mentees, composer_id, music_id,
+    player_id, conductor_id, orchestra_id) narrows the plays as in stats/, so a
+    stats card links to the plays it counted; ?requested=true|false keeps only
+    or no 신청곡 (absent: both)."""
+
+    serializer_class = PlaySerializer
+    pagination_class = PlaysPagination
+
+    def get_queryset(self):
+        query = PlaysQuerySerializer(data=self.request.query_params)
+        query.is_valid(raise_exception=True)
+        stats_filter, _ = build_timemusic_filter(self.request.query_params)
+        # include_mentees joins 지기 and 견습 지기: one play, several rows.
+        plays = TimeMusic.objects.filter(stats_filter).distinct()
+
+        requested = query.validated_data.get("requested")
+        if requested is not None:
+            plays = plays.filter(is_requested=requested)
+
+        q = query.validated_data.get("q", "").strip()
+        if q:
+            # A subquery, not a join: a play whose two players match is one row.
+            players = TimeMusic.players.through.objects.filter(
+                Q(player__name__icontains=q) | Q(player__instrument__icontains=q)
+            )
+            plays = plays.filter(
+                Q(music__composer__name__icontains=q)
+                | Q(music__title__icontains=q)
+                | Q(music_detail__semi_title__icontains=q)
+                | Q(conductor__name__icontains=q)
+                | Q(orchestra__name__icontains=q)
+                | Q(id__in=players.values("timemusic_id"))
+            )
+
+        return (
+            plays.select_related(
+                "time", "music__composer", "music_detail", "conductor", "orchestra"
+            )
+            .prefetch_related(players_as_typed(), "time__users", "time__mentees")
+            .order_by("-time__date", "-time__time", "-order", "-id")
         )
 
 

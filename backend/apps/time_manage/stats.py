@@ -12,14 +12,32 @@ play history = TimeMusic ⨝ TimeInfo. 모든 엔드포인트는 공통 필터(`
     }
 
 필터 파라미터 형식이 틀리면 400 과 DRF 필드별 오류(예: {"start": [...]})를 돌려준다.
+composer_id/music_id/player_id/conductor_id/orchestra_id 를 주면 그 대상의 선곡만
+센다(차트 items 의 id 로 drill-down).
+
+stats/firsts/?kind=composer|work 는 클럽 전체에서 처음 튼 날(필터와 무관)이 필터
+기간에 드는 작곡가·곡을 처음 튼 날, 이름 순으로 준다(학기 결산). items 는
+{id, name, count, first_played}, count 는 필터에 드는 선곡 수.
 """
 
 import datetime
 import math
 from collections import defaultdict
 
-from django.db.models import Count, Max, Min, Q
-from django.db.models.functions import TruncMonth, TruncWeek
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    F,
+    Max,
+    Min,
+    OuterRef,
+    Q,
+    Subquery,
+    Value,
+    When,
+)
+from django.db.models.functions import Concat, TruncMonth, TruncWeek
 from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -205,23 +223,40 @@ def diversity_metrics(counts, n_possible):
     }
 
 
-def genre_counts(qs):
-    """필터된 TimeMusic 쿼리셋 → {장르: 선곡수}.
+def plays_with_instruments(qs, *fields):
+    """필터된 TimeMusic 쿼리셋 → (선곡 dict 목록, {선곡 id: 연주자 instrument 목록}).
 
-    players(M2M) 조인이 행을 부풀리지 않도록 prefetch 후 파이썬에서 집계하며,
-    필터 조인으로 생길 수 있는 중복 행은 id 로 1회만 센다.
+    선곡 dict 는 id, music_id, music__title, orchestra_id 와 fields 를 담는다.
+    모델 인스턴스(+ players prefetch)로 읽으면 5,000곡에 0.5초가 넘게 걸려
+    values() 로 읽는다. players(M2M)는 따로 한 번에 읽어 행을 부풀리지 않고,
+    distinct 쿼리셋이라 필터 조인의 중복 행은 한 dict 로 접힌다.
     """
+    plays = list(qs.values("id", "music_id", "music__title", "orchestra_id", *fields))
+    instruments = defaultdict(list)
+    if plays:
+        rows = TimeMusic.players.through.objects.filter(
+            timemusic_id__in=qs.values("id")
+        ).values_list("timemusic_id", "player__instrument")
+        for play_id, instrument in rows:
+            instruments[play_id].append(instrument)
+    return plays, instruments
+
+
+def genre_of(play, instruments):
+    """plays_with_instruments 의 선곡 dict 하나 → 장르 라벨."""
+    return genre_for(
+        play["music__title"],
+        play["orchestra_id"] is not None,
+        instruments[play["id"]],
+    )
+
+
+def genre_counts(qs):
+    """필터된 TimeMusic 쿼리셋 → {장르: 선곡수}. 선곡마다 1회 센다."""
     buckets = {label: 0 for label in GENRE_ORDER}
-    seen = set()
-    plays = qs.select_related("music", "orchestra").prefetch_related("players")
-    for tm in plays:
-        if tm.id in seen:
-            continue
-        seen.add(tm.id)
-        instruments = [p.instrument for p in tm.players.all()]
-        title = tm.music.title if tm.music_id else ""
-        genre = genre_for(title, tm.orchestra_id is not None, instruments)
-        buckets[genre] += 1
+    plays, instruments = plays_with_instruments(qs)
+    for play in plays:
+        buckets[genre_of(play, instruments)] += 1
     return buckets
 
 
@@ -262,14 +297,29 @@ class StatsFilterSerializer(serializers.Serializer):
     end = serializers.DateField(required=False)
     semester_id = serializers.IntegerField(required=False, **_ID_RANGE)
     user_id = serializers.IntegerField(required=False, **_ID_RANGE)
+    composer_id = serializers.IntegerField(required=False, **_ID_RANGE)
+    music_id = serializers.IntegerField(required=False, **_ID_RANGE)
+    player_id = serializers.IntegerField(required=False, **_ID_RANGE)
+    conductor_id = serializers.IntegerField(required=False, **_ID_RANGE)
+    orchestra_id = serializers.IntegerField(required=False, **_ID_RANGE)
+
+
+# 대상 id 파라미터 → TimeMusic 필드. player_id 는 M2M 이라 따로 처리한다.
+_ID_FILTERS = {
+    "composer_id": "music__composer_id",
+    "music_id": "music_id",
+    "conductor_id": "conductor_id",
+    "orchestra_id": "orchestra_id",
+}
 
 
 def build_timemusic_filter(params):
     """쿼리 파라미터를 TimeMusic 필터(Q 객체)로 변환.
 
-    지원 파라미터: start, end (YYYY-MM-DD), semester_id, user_id, include_mentees.
+    지원 파라미터: start, end (YYYY-MM-DD), semester_id, user_id, include_mentees,
+    composer_id, music_id, player_id, conductor_id, orchestra_id (모두 AND).
     적용된 필터 정보를 함께 돌려준다(응답 봉투의 filters 필드).
-    start/end/semester_id/user_id 형식이 틀리면 ValidationError(400)를 던진다.
+    날짜/id 형식이 틀리면 ValidationError(400)를 던진다.
     """
     filters = StatsFilterSerializer(data=params)
     filters.is_valid(raise_exception=True)
@@ -310,6 +360,20 @@ def build_timemusic_filter(params):
         applied["user_id"] = user_id
         applied["include_mentees"] = include_mentees
 
+    for param, field in _ID_FILTERS.items():
+        value = filters.validated_data.get(param)
+        if value is not None:
+            q &= Q(**{field: value})
+            applied[param] = value
+
+    player_id = filters.validated_data.get("player_id")
+    if player_id is not None:
+        # 조인 대신 서브쿼리: 한 곡이 여러 행이 되지 않고, soloists 집계의
+        # players 조인도 이 필터에 묶이지 않아 함께 연주한 연주자까지 센다.
+        through = TimeMusic.players.through.objects.filter(player_id=player_id)
+        q &= Q(id__in=through.values("timemusic_id"))
+        applied["player_id"] = player_id
+
     return q, applied
 
 
@@ -333,13 +397,29 @@ def _limit(request, default=15):
         return default
 
 
+def _label(blank, alone, *parts):
+    """응답에 보이는 이름(라벨)과 같은 문자열의 SQL 식. 동점 정렬용.
+
+    blank 필드가 비면 alone 필드만, 아니면 parts(필드 이름 또는 Value)를 잇는다.
+    SQLite 는 문자열을 코드 포인트 순으로 비교하므로 파이썬의 정렬과 같다.
+    """
+    return Case(
+        When(**{blank: ""}, then=F(alone)),
+        default=Concat(*parts),
+        output_field=CharField(),
+    )
+
+
 def _top_by(qs, group_field, name_field, limit, id_field=None):
-    """공통 top-N 집계. labels/values/items 봉투 부분을 만든다."""
+    """공통 top-N 집계. labels/values/items 봉투 부분을 만든다.
+
+    선곡 수가 같으면 이름, 그다음 id 순(limit 의 경계도 이 순서를 따른다).
+    """
     id_field = id_field or group_field
     rows = (
         qs.values(id_field, name_field)
         .annotate(count=Count("id", distinct=True))
-        .order_by("-count")[:limit]
+        .order_by("-count", name_field, id_field)[:limit]
     )
     labels, values, items = [], [], []
     for row in rows:
@@ -354,12 +434,18 @@ def _top_by(qs, group_field, name_field, limit, id_field=None):
 # 엔드포인트
 # ---------------------------------------------------------------------------
 class StatsSummaryView(APIView):
-    """헤더 KPI 카드용 요약 수치."""
+    """헤더 KPI 카드용 요약 수치.
+
+    sessions 는 필터에 드는 곡이 있는 타임 수(곡 없는 타임은 세지 않는다),
+    requested 는 필터에 드는 신청곡 수.
+    """
 
     def get(self, request):
         qs, applied = base_queryset(request)
         agg = qs.aggregate(
             total_plays=Count("id"),
+            sessions=Count("time", distinct=True),
+            requested=Count("id", filter=Q(is_requested=True)),
             composers=Count("music__composer", distinct=True),
             works=Count("music", distinct=True),
             conductors=Count("conductor", distinct=True),
@@ -370,6 +456,8 @@ class StatsSummaryView(APIView):
             {
                 "filters": applied,
                 "total_plays": agg["total_plays"],
+                "sessions": agg["sessions"],
+                "requested": agg["requested"],
                 "composers": agg["composers"],
                 "works": agg["works"],
                 "conductors": agg["conductors"],
@@ -402,24 +490,66 @@ class TopComposersStatsView(APIView):
 
 
 class TopWorksStatsView(APIView):
+    """많이 선곡된 곡. items 에 작곡가 id 와 첫·마지막 선곡일을 더한다.
+
+    first_played/last_played 는 필터와 상관없이 그 곡의 전체 선곡 중 첫·마지막
+    날짜다(기간을 좁혀도 "처음 튼 날"이 바뀌지 않는다). 선곡 수가 같으면
+    라벨("작곡가 - 곡"), 그다음 id 순.
+    """
+
     def get(self, request):
         qs, applied = base_queryset(request)
         total = qs.count()
         limit = _limit(request)
-        rows = (
+        rows = list(
             qs.exclude(music__isnull=True)
-            .values("music__id", "music__title", "music__composer__name")
+            .values(
+                "music__id",
+                "music__title",
+                "music__composer__id",
+                "music__composer__name",
+            )
             .annotate(count=Count("id", distinct=True))
-            .order_by("-count")[:limit]
+            .order_by(
+                "-count",
+                _label(
+                    "music__composer__name",
+                    "music__title",
+                    "music__composer__name",
+                    Value(" - "),
+                    "music__title",
+                ),
+                "music__id",
+            )[:limit]
         )
+        dates = {}
+        if rows:
+            dates = {
+                span["music_id"]: span
+                for span in TimeMusic.objects.filter(
+                    music_id__in=[row["music__id"] for row in rows]
+                )
+                .values("music_id")
+                .annotate(first=Min("time__date"), last=Max("time__date"))
+            }
         labels, values, items = [], [], []
         for row in rows:
             composer = row["music__composer__name"] or ""
             title = row["music__title"]
             label = f"{composer} - {title}" if composer else title
+            played = dates[row["music__id"]]
             labels.append(label)
             values.append(row["count"])
-            items.append({"id": row["music__id"], "name": label, "count": row["count"]})
+            items.append(
+                {
+                    "id": row["music__id"],
+                    "name": label,
+                    "count": row["count"],
+                    "composer_id": row["music__composer__id"],
+                    "first_played": str(played["first"]),
+                    "last_played": str(played["last"]),
+                }
+            )
         return Response(
             {
                 "filters": applied,
@@ -478,7 +608,7 @@ class TopSoloistsStatsView(APIView):
 
     악기에 상관없이 모든 연주자를 한데 모아 등장 선곡 수로 순위를 매긴다.
     라벨은 "이름 (악기)" 형태. M2M 조인으로 한 곡이 부풀지 않도록 곡은
-    distinct 로 센다.
+    distinct 로 센다. 선곡 수가 같으면 라벨, 그다음 id 순.
     """
 
     def get(self, request):
@@ -488,7 +618,18 @@ class TopSoloistsStatsView(APIView):
             qs.exclude(players__isnull=True)
             .values("players__id", "players__name", "players__instrument")
             .annotate(count=Count("id", distinct=True))
-            .order_by("-count")[: _limit(request)]
+            .order_by(
+                "-count",
+                _label(
+                    "players__instrument",
+                    "players__name",
+                    "players__name",
+                    Value(" ("),
+                    "players__instrument",
+                    Value(")"),
+                ),
+                "players__id",
+            )[: _limit(request)]
         )
         labels, values, items = [], [], []
         for row in rows:
@@ -511,8 +652,21 @@ class TopSoloistsStatsView(APIView):
         )
 
 
+def _next_period(period, bucket):
+    """다음 주(월요일) 또는 다음 달(1일)."""
+    if bucket == "week":
+        return period + datetime.timedelta(days=7)
+    if period.month == 12:
+        return period.replace(year=period.year + 1, month=1)
+    return period.replace(month=period.month + 1)
+
+
 class PlaysOverTimeStatsView(APIView):
-    """기간별 선곡 추이. ?bucket=week|month|semester (기본 month)."""
+    """기간별 선곡 추이. ?bucket=week|month|semester (기본 month).
+
+    week·month 는 첫 선곡과 마지막 선곡 사이의 빈 버킷도 0 으로 준다(필터의
+    start/end 까지 늘리지는 않는다). semester 는 선곡이 있는 학기만 준다.
+    """
 
     def get(self, request):
         qs, applied = base_queryset(request)
@@ -547,15 +701,19 @@ class PlaysOverTimeStatsView(APIView):
             labels = sorted(buckets.keys())
             values = [buckets[k] for k in labels]
         else:
+            # 첫 선곡과 마지막 선곡 사이의 빈 주·월은 0 으로 채운다.
+            counts = {
+                row["period"]: row["count"] for row in rows if row["period"] is not None
+            }
             labels, values = [], []
-            for row in rows:
-                period = row["period"]
-                if period is None:
-                    continue
+            period, last = (min(counts), max(counts)) if counts else (None, None)
+            while period is not None:
                 labels.append(
                     period.strftime("%Y-%m-%d" if bucket == "week" else "%Y-%m")
                 )
-                values.append(row["count"])
+                values.append(counts.get(period, 0))
+                # 마지막 버킷 다음은 만들지 않는다(9999년 12월 다음은 없다).
+                period = _next_period(period, bucket) if period < last else None
 
         return Response(
             {
@@ -650,9 +808,13 @@ class DiversityStatsView(APIView):
         if bucket not in ("week", "month"):
             bucket = "week"
 
-        plays = qs.select_related(
-            "time", "music", "music__composer", "orchestra"
-        ).prefetch_related("players")
+        plays, instruments = plays_with_instruments(
+            qs,
+            "time__date",
+            "music__composer__id",
+            "music__composer__birth_year",
+            "music__composer__era_override",
+        )
 
         era_all = defaultdict(int)
         genre_all = defaultdict(int)
@@ -663,44 +825,36 @@ class DiversityStatsView(APIView):
         per_plays = defaultdict(int)
         per_works = defaultdict(set)
 
-        seen = set()
-        total = 0
-        for tm in plays:
-            if tm.id in seen:
-                continue
-            seen.add(tm.id)
-            total += 1
-
-            date = tm.time.date
+        total = len(plays)
+        for play in plays:
+            date = play["time__date"]
             if bucket == "week":
                 start = date - datetime.timedelta(days=date.weekday())
                 key = start.strftime("%Y-%m-%d")
             else:
                 key = date.strftime("%Y-%m")
 
-            composer = (
-                tm.music.composer if (tm.music_id and tm.music.composer_id) else None
-            )
+            composer_id = play["music__composer__id"]
             era = (
-                era_for(composer.birth_year, composer.era_override)
-                if composer
+                era_for(
+                    play["music__composer__birth_year"],
+                    play["music__composer__era_override"],
+                )
+                if composer_id
                 else "미상"
             )
-
-            instruments = [p.instrument for p in tm.players.all()]
-            title = tm.music.title if tm.music_id else ""
-            genre = genre_for(title, tm.orchestra_id is not None, instruments)
+            genre = genre_of(play, instruments)
 
             era_all[era] += 1
             genre_all[genre] += 1
             per_era[key][era] += 1
             per_genre[key][genre] += 1
             per_plays[key] += 1
-            if tm.music_id:
-                works.add(tm.music_id)
-                per_works[key].add(tm.music_id)
-            if composer:
-                composers.add(composer.id)
+            if play["music_id"]:
+                works.add(play["music_id"])
+                per_works[key].add(play["music_id"])
+            if composer_id:
+                composers.add(composer_id)
 
         # 기간 전체 요약 분포.
         era_known = {e: c for e, c in era_all.items() if e != "미상"}
@@ -752,5 +906,80 @@ class DiversityStatsView(APIView):
                 "total_plays": total,
                 "summary": summary,
                 "timeline": timeline,
+            }
+        )
+
+
+class FirstsQuerySerializer(StatsFilterSerializer):
+    """stats/firsts 파라미터. kind 가 비면 composer."""
+
+    kind = serializers.ChoiceField(
+        choices=["composer", "work"], required=False, allow_blank=True
+    )
+
+
+class FirstPlaysStatsView(APIView):
+    """기간 안에 처음 선곡된 작곡가·곡(학기 결산). ?kind=composer|work (기본 composer).
+
+    처음 튼 날(first_played)은 필터와 상관없이 클럽 전체 선곡 중 첫 날짜다.
+    그 날짜가 필터 기간(start/end, 또는 학기)에 들고 필터에 드는 선곡이 있는
+    대상만, 처음 튼 날·이름·id 순으로 모두 준다. count 는 필터에 드는 선곡 수.
+    기간을 주지 않으면 필터에 드는 모든 대상이 해당한다.
+    """
+
+    def get(self, request):
+        params = FirstsQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        kind = params.validated_data.get("kind") or "composer"
+        qs, applied = base_queryset(request)
+        total = qs.count()
+
+        if kind == "composer":
+            id_field, own_field = "music__composer__id", "music__composer_id"
+            fields = [id_field, "music__composer__name"]
+        else:
+            id_field, own_field = "music__id", "music_id"
+            fields = [id_field, "music__title", "music__composer__name"]
+        first = (
+            TimeMusic.objects.filter(**{own_field: OuterRef(id_field)})
+            .order_by("time__date")
+            .values("time__date")[:1]
+        )
+        rows = (
+            qs.exclude(**{f"{id_field}__isnull": True})
+            .values(*fields)
+            .annotate(first_played=Subquery(first))
+        )
+        # 끝 날짜는 따로 볼 필요가 없다: 첫 선곡일은 필터에 드는 선곡일보다 늦지 않다.
+        if "start" in applied:
+            rows = rows.filter(
+                first_played__gte=datetime.date.fromisoformat(applied["start"])
+            )
+        rows = rows.annotate(count=Count("id", distinct=True)).order_by()
+
+        items = []
+        for row in rows:
+            if kind == "composer":
+                name = row["music__composer__name"]
+            else:
+                composer = row["music__composer__name"] or ""
+                title = row["music__title"]
+                name = f"{composer} - {title}" if composer else title
+            items.append(
+                {
+                    "id": row[id_field],
+                    "name": name,
+                    "count": row["count"],
+                    "first_played": str(row["first_played"]),
+                }
+            )
+        items.sort(key=lambda item: (item["first_played"], item["name"], item["id"]))
+        return Response(
+            {
+                "filters": {**applied, "kind": kind},
+                "total_plays": total,
+                "labels": [item["name"] for item in items],
+                "values": [item["count"] for item in items],
+                "items": items,
             }
         )

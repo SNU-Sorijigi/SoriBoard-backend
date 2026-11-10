@@ -182,15 +182,36 @@ class TimeMusicWriteTests(APITestCase):
         play = TimeMusic.objects.get(pk=response.json()["id"])
         self.assertEqual(play.conductor.name, "카를로스 클라이버")
 
-    def test_edit_conductor_without_a_role_is_400_and_saves_nothing(self):
+    def test_edit_reads_the_conductor_as_the_form_shows_it(self):
         # The edit form shows "지휘: " + the name, or nothing when there is no
-        # conductor; a name typed into the empty field has no "지휘: ".
+        # conductor. A name typed into the empty field has no "지휘: ", and
+        # clearing the name leaves "지휘: " (DRF trims the space).
+        kleiber = Conductor.objects.create(name="카를로스 클라이버")
+        for conductor, expected in [
+            ("카를로스 클라이버", kleiber),
+            ("지휘: 카를로스 클라이버", kleiber),
+            ("지휘:  카를로스 클라이버", kleiber),
+            ("지휘: ", None),
+            ("지휘:", None),
+            ("", None),
+            (None, None),  # left out
+        ]:
+            with self.subTest(conductor=conductor):
+                self.play.conductor = kleiber
+                self.play.save()
+                response = self.edit(conductor_name=conductor)
+                self.assertEqual(response.status_code, 200)
+                play = TimeMusic.objects.get(pk=self.play.pk)
+                self.assertEqual(play.conductor, expected)
+                self.assertEqual(play.music.title, "교향곡 제5번 Op. 67")
+                self.assertEqual(Conductor.objects.count(), 1)
+
+    def test_edit_conductor_with_an_unclear_role_is_400_and_saves_nothing(self):
         before = self.snapshot(), self.counts()
         for conductor, shown in [
-            ("카를로스 클라이버", "카를로스 클라이버"),
             ("지휘:카를로스 클라이버", "지휘:카를로스 클라이버"),
             ("지휘: 카를로스 클라이버: 빈", "지휘: 카를로스 클라이버: 빈"),
-            ("지휘: ", "지휘:"),  # the name cleared; DRF trims the space
+            ("지휘:카를로스 클라이버:", "지휘:카를로스 클라이버:"),
         ]:
             with self.subTest(conductor=conductor):
                 # A new composer: it was saved before the edit failed.

@@ -1,6 +1,8 @@
 import datetime
+from unittest import mock
 
 from django.db import connection
+from django.db.models import Model
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from rest_framework.test import APITestCase
@@ -29,6 +31,7 @@ ENDPOINTS = [
     "eras",
     "genres",
     "diversity",
+    "firsts",
 ]
 
 
@@ -48,12 +51,20 @@ class StatsRequests:
 
     def assert_no_plays(self, **params):
         summary = self.get("summary", **params)
-        for key in ("total_plays", "composers", "works", "conductors", "orchestras"):
+        for key in (
+            "total_plays",
+            "sessions",
+            "requested",
+            "composers",
+            "works",
+            "conductors",
+            "orchestras",
+        ):
             self.assertEqual(summary[key], 0)
         self.assertIsNone(summary["date_start"])
         self.assertIsNone(summary["date_end"])
 
-        for name in ("composers", "eras", "genres"):
+        for name in ("composers", "works", "eras", "genres", "firsts"):
             with self.subTest(endpoint=name):
                 result = self.get(name, **params)
                 self.assertEqual(result["total_plays"], 0)
@@ -90,6 +101,28 @@ class StatsRequests:
 class EmptyStatsTests(StatsRequests, APITestCase):
     def test_no_plays_gives_zero_counts_and_empty_charts(self):
         self.assert_no_plays()
+
+    def test_no_plays_skip_the_players_query_of_genres_and_diversity(self):
+        with self.assertNumQueries(2):
+            self.get("genres")
+        with self.assertNumQueries(1):
+            self.get("diversity")
+
+    def test_no_plays_give_no_firsts_of_either_kind(self):
+        for kind in ("composer", "work"):
+            with self.subTest(kind=kind):
+                with self.assertNumQueries(2):
+                    result = self.get("firsts", kind=kind)
+                self.assertEqual(
+                    result,
+                    {
+                        "filters": {"scope": "all", "kind": kind},
+                        "total_plays": 0,
+                        "labels": [],
+                        "values": [],
+                        "items": [],
+                    },
+                )
 
 
 class StatsTests(StatsRequests, APITestCase):
@@ -203,6 +236,8 @@ class StatsTests(StatsRequests, APITestCase):
             {
                 "filters": {"scope": "all"},
                 "total_plays": 6,
+                "sessions": 4,
+                "requested": 0,
                 "composers": 5,
                 "works": 5,
                 "conductors": 2,
@@ -211,6 +246,59 @@ class StatsTests(StatsRequests, APITestCase):
                 "date_end": "2024-03-12",
             },
         )
+
+    def test_summary_counts_sessions_and_requests_in_the_filter(self):
+        # 신청곡: the 3/4 concerto and the 3/12 chant.
+        TimeMusic.objects.filter(
+            music__title__in=["피아노 협주곡 제2번", "그레고리오 성가"]
+        ).update(is_requested=True)
+        cases = [
+            ({}, 6, 4, 2),
+            ({"start": "2024-03-05"}, 3, 2, 1),
+            ({"semester_id": self.fall_2023.id}, 1, 1, 0),
+            ({"user_id": self.member.id}, 3, 2, 1),
+            ({"user_id": self.mentee.id}, 2, 1, 1),
+            ({"composer_id": self.mozart.id}, 2, 2, 0),
+            ({"conductor_id": self.karajan.id}, 2, 1, 1),
+            ({"player_id": self.cellist.id}, 2, 2, 0),
+        ]
+        for params, plays, sessions, requested in cases:
+            with self.subTest(params=params):
+                result = self.get("summary", **params)
+                self.assertEqual(result["total_plays"], plays)
+                self.assertEqual(result["sessions"], sessions)
+                self.assertEqual(result["requested"], requested)
+
+    def test_summary_counts_a_session_and_a_request_once_with_mentee_sessions(self):
+        # The 3/4 session has two members and two mentees, so the OR across both
+        # M2M joins returns each of its plays on more than one row.
+        TimeMusic.objects.filter(time__date=datetime.date(2024, 3, 4)).update(
+            is_requested=True
+        )
+        params = {"user_id": self.mentee.id, "include_mentees": "true"}
+        result = self.get("summary", **params)
+        self.assertEqual(result["total_plays"], 5)
+        self.assertEqual(result["sessions"], 3)
+        self.assertEqual(result["requested"], 2)
+
+        params["player_id"] = Player.objects.get(name="피아니스트").id
+        result = self.get("summary", **params)
+        self.assertEqual(result["total_plays"], 1)
+        self.assertEqual(result["sessions"], 1)
+        self.assertEqual(result["requested"], 1)
+
+    def test_a_session_without_plays_is_not_counted(self):
+        TimeInfo.objects.create(
+            date=datetime.date(2024, 3, 7), time=1, arrival_time="09:30:00"
+        )
+        self.assertEqual(self.get("summary")["sessions"], 4)
+
+    def test_summary_takes_two_queries(self):
+        params = {"user_id": self.mentee.id, "include_mentees": "true"}
+        for scope in ({}, params):
+            with self.subTest(params=scope):
+                with self.assertNumQueries(2):
+                    self.get("summary", **scope)
 
     def test_composers_are_ranked_by_plays_and_limited(self):
         result = self.get("composers")
@@ -289,7 +377,14 @@ class StatsTests(StatsRequests, APITestCase):
         self.assertEqual(works["total_plays"], 6)
         self.assertEqual(
             works["items"][0],
-            {"id": self.symphony.id, "name": "모차르트 - 교향곡 제40번", "count": 2},
+            {
+                "id": self.symphony.id,
+                "name": "모차르트 - 교향곡 제40번",
+                "count": 2,
+                "composer_id": self.mozart.id,
+                "first_played": "2024-03-04",
+                "last_played": "2024-03-06",
+            },
         )
         self.assertEqual(
             self.counts(works),
@@ -318,6 +413,192 @@ class StatsTests(StatsRequests, APITestCase):
         self.assertEqual(
             self.counts(self.get("orchestras", **later)), {"빈 필하모닉": 1}
         )
+
+    RANKINGS = ["composers", "works", "soloists", "conductors", "orchestras"]
+
+    def ranked(self, name, **params):
+        result = self.get(name, **params)
+        items = result["items"]
+        self.assertEqual(
+            items,
+            sorted(items, key=lambda item: (-item["count"], item["name"], item["id"])),
+        )
+        return [item["name"] for item in items]
+
+    def test_ties_are_ranked_by_name(self):
+        # Created 바흐, 브람스, 베토벤, 작자 미상: ties are not in id order.
+        self.assertEqual(
+            self.ranked("composers"),
+            ["모차르트", "바흐", "베토벤", "브람스", "작자 미상"],
+        )
+        self.assertEqual(
+            self.ranked("works"),
+            [
+                "모차르트 - 교향곡 제40번",
+                "바흐 - 무반주 첼로 모음곡 제1번",
+                "베토벤 - 현악 사중주 제14번",
+                "브람스 - 피아노 협주곡 제2번",
+                "작자 미상 - 그레고리오 성가",
+            ],
+        )
+        self.assertEqual(
+            self.ranked("soloists"),
+            [
+                "첼리스트 (첼로)",
+                "비올리스트 (비올라)",
+                "제1바이올린 (바이올린)",
+                "제2바이올린 (바이올린)",
+                "피아니스트 (피아노)",
+            ],
+        )
+        for name in self.RANKINGS:
+            with self.subTest(endpoint=name):
+                self.ranked(name, start="2024-03-01")
+
+    def test_ties_with_the_same_name_are_ranked_by_id_and_limit_cuts_after(self):
+        chung = Conductor.objects.create(name="정명훈")
+        abbado = Conductor.objects.create(name="아바도")
+        twin = Conductor.objects.create(name="아바도")
+        cologne = Orchestra.objects.create(name="쾰른 방송 교향악단")
+        london = Orchestra.objects.create(name="런던 심포니")
+        london_twin = Orchestra.objects.create(name="런던 심포니")
+        for conductor, orchestra in (
+            (chung, cologne),
+            (twin, london_twin),
+            (abbado, london),
+        ):
+            self.add_play(
+                datetime.date(2025, 1, 6),
+                time=conductor.id,
+                music=self.symphony,
+                conductor=conductor,
+                orchestra=orchestra,
+            )
+
+        later = {"start": "2025-01-01"}
+        conductors = self.get("conductors", **later)
+        self.assertEqual(
+            [item["id"] for item in conductors["items"]], [abbado.id, twin.id, chung.id]
+        )
+        self.assertEqual(conductors["labels"], ["아바도", "아바도", "정명훈"])
+        orchestras = self.get("orchestras", **later)
+        self.assertEqual(
+            [item["id"] for item in orchestras["items"]],
+            [london.id, london_twin.id, cologne.id],
+        )
+        for name, first_two in (
+            ("conductors", [abbado.id, twin.id]),
+            ("orchestras", [london.id, london_twin.id]),
+        ):
+            with self.subTest(endpoint=name):
+                top = self.get(name, limit=2, **later)
+                self.assertEqual([item["id"] for item in top["items"]], first_two)
+        # 카라얀 (2) still leads; the tied ones follow by name.
+        self.assertEqual(
+            self.get("conductors", limit=3)["labels"], ["카라얀", "번스타인", "아바도"]
+        )
+        for name in self.RANKINGS:
+            with self.subTest(endpoint=name):
+                self.ranked(name)
+
+    def test_ties_are_ranked_by_the_name_the_answer_shows(self):
+        # By label, not by its parts: "슈트라우스 (요한) - …" sorts before
+        # "슈트라우스 - …" ("(" < "-"), and a work whose composer has no name
+        # is labelled with its title alone.
+        strauss = Composer.objects.create(name="슈트라우스")
+        johann = Composer.objects.create(name="슈트라우스 (요한)")
+        unnamed = Composer.objects.create(name="")
+        waltz = Music.objects.create(composer=strauss, title="왈츠")
+        march = Music.objects.create(composer=johann, title="라데츠키 행진곡")
+        hymn = Music.objects.create(composer=unnamed, title="슈트라우스 송가")
+        # "합창단" < "합창단 & 독창자" < "합창단 (합창)" ("&" < "(").
+        choir = Player.objects.create(name="합창단", instrument="합창")
+        duo = Player.objects.create(name="합창단 & 독창자", instrument="")
+        bare = Player.objects.create(name="합창단", instrument="")
+        for time, music in enumerate((waltz, march, hymn), start=1):
+            self.add_play(
+                datetime.date(2025, 1, 6),
+                time=time,
+                music=music,
+                players=[choir, duo, bare],
+            )
+
+        later = {"start": "2025-01-01"}
+        self.assertEqual(
+            self.ranked("works", **later),
+            [
+                "슈트라우스 (요한) - 라데츠키 행진곡",
+                "슈트라우스 - 왈츠",
+                "슈트라우스 송가",
+            ],
+        )
+        self.assertEqual(
+            [item["id"] for item in self.get("works", **later)["items"]],
+            [march.id, waltz.id, hymn.id],
+        )
+        self.assertEqual(
+            self.ranked("soloists", **later),
+            ["합창단", "합창단 & 독창자", "합창단 (합창)"],
+        )
+        self.assertEqual(
+            [item["id"] for item in self.get("soloists", **later)["items"]],
+            [bare.id, duo.id, choir.id],
+        )
+        self.assertEqual(
+            self.ranked("composers", **later), ["", "슈트라우스", "슈트라우스 (요한)"]
+        )
+
+    def test_works_name_their_composer(self):
+        composer_ids = {
+            item["name"]: item["composer_id"] for item in self.get("works")["items"]
+        }
+        self.assertEqual(
+            composer_ids,
+            {
+                f"{music.composer.name} - {music.title}": music.composer_id
+                for music in Music.objects.select_related("composer")
+            },
+        )
+
+    def test_works_first_and_last_played_are_all_time_not_the_filtered_range(self):
+        self.add_play(datetime.date(2025, 5, 2), music=self.symphony)
+        dates = {"first_played": "2024-03-04", "last_played": "2025-05-02"}
+        # Each range holds one of the symphony's three plays.
+        for params in [
+            {"end": "2024-03-04"},
+            {"start": "2024-03-05", "end": "2024-03-06"},
+            {"start": "2025-01-01"},
+            {"semester_id": self.spring_2024.id, "user_id": self.member.id},
+        ]:
+            with self.subTest(params=params):
+                items = self.get("works", **params)["items"]
+                item = next(i for i in items if i["id"] == self.symphony.id)
+                self.assertEqual(item["count"], 1)
+                self.assertEqual(
+                    {k: item[k] for k in ("first_played", "last_played")}, dates
+                )
+
+    def test_a_work_played_once_was_first_and_last_played_that_day(self):
+        suite = self.get("works", player_id=self.cellist.id, end="2024-03-01")
+        self.assertEqual(
+            suite["items"][0],
+            {
+                "id": Music.objects.get(title="무반주 첼로 모음곡 제1번").id,
+                "name": "바흐 - 무반주 첼로 모음곡 제1번",
+                "count": 1,
+                "composer_id": Composer.objects.get(name="바흐").id,
+                "first_played": "2024-02-29",
+                "last_played": "2024-02-29",
+            },
+        )
+
+    def test_works_take_three_queries_and_two_when_empty(self):
+        # The total, the ranking, and the first and last play of the ranked works.
+        for params in [{}, {"user_id": self.mentee.id, "include_mentees": "true"}]:
+            with self.subTest(params=params), self.assertNumQueries(3):
+                self.get("works", **params)
+        with self.assertNumQueries(2):
+            self.assertEqual(self.get("works", start="2030-01-01")["items"], [])
 
     def test_eras_use_birth_year_override_and_report_unknown_share(self):
         result = self.get("eras")
@@ -427,6 +708,162 @@ class StatsTests(StatsRequests, APITestCase):
         self.assertEqual(result["filters"]["bucket"], "week")
         self.assertEqual(result["timeline"]["bucket"], "week")
 
+    # genres and diversity classify every play with its players' instruments.
+    def add_april_plays(self):
+        """Six plays over two April weeks that reach each genre rule.
+
+        Every session has the mentee as member and mentee, so the
+        include_mentees join returns each play on two rows.
+        """
+        brahms = Composer.objects.get(name="브람스")
+        bach = Composer.objects.get(name="바흐")
+        pianists = [
+            Player.objects.create(name=f"피아니스트 {n}", instrument="피아노")
+            for n in (1, 2)
+        ]
+        cases = [
+            # No work, an orchestra and a singer: 기타 (vocal), 미상.
+            (
+                1,
+                1,
+                {
+                    "orchestra": self.berlin,
+                    "players": [
+                        Player.objects.create(name="가수", instrument="소프라노")
+                    ],
+                },
+            ),
+            # No work, nothing else: 기타, 미상.
+            (1, 2, {}),
+            # 협주곡 by title, two soloists, 낭만.
+            (
+                2,
+                1,
+                {
+                    "music": Music.objects.get(title="피아노 협주곡 제2번"),
+                    "orchestra": self.vienna,
+                    "players": pianists,
+                },
+            ),
+            # An orchestra without soloists: 관현악곡, 고전.
+            (
+                8,
+                1,
+                {
+                    "music": Music.objects.create(
+                        composer=self.mozart, title="세레나데"
+                    ),
+                    "orchestra": self.berlin,
+                },
+            ),
+            # One player: 독주곡, 바로크.
+            (
+                8,
+                2,
+                {
+                    "music": Music.objects.create(composer=bach, title="파르티타"),
+                    "players": [self.cellist],
+                },
+            ),
+            # 교향곡 by title, though it has an orchestra and soloists.
+            (
+                9,
+                1,
+                {"music": self.symphony, "orchestra": self.berlin, "players": pianists},
+            ),
+        ]
+        for day, time, fields in cases:
+            self.add_play(
+                datetime.date(2024, 4, day),
+                time=time,
+                users=[self.member, self.mentee],
+                mentees=[self.mentee],
+                **fields,
+            )
+        return {"start": "2024-04-01", "end": "2024-04-14"}
+
+    def test_genres_and_diversity_classify_plays_with_and_without_works_once(self):
+        april = self.add_april_plays()
+        mentee = {"user_id": self.mentee.id, "include_mentees": "true"}
+        for params in (april, {**april, **mentee}):
+            with self.subTest(params=params):
+                genres = self.get("genres", **params)
+                self.assertEqual(genres["total_plays"], 6)
+                self.assertEqual(
+                    self.counts(genres),
+                    {"교향곡": 1, "협주곡": 1, "관현악곡": 1, "독주곡": 1, "기타": 2},
+                )
+                self.assertEqual(
+                    genres["labels"], ["교향곡", "협주곡", "관현악곡", "독주곡", "기타"]
+                )
+
+                diversity = self.get("diversity", **params)
+                self.assertEqual(diversity["total_plays"], 6)
+                self.assertEqual(
+                    diversity["summary"],
+                    {
+                        "distinct_works": 4,
+                        "distinct_composers": 3,
+                        "era": {
+                            "labels": ["바로크", "고전", "낭만"],
+                            "values": [1, 2, 1],
+                            "unknown_share": 0.3333,
+                            "entropy": 1.0397,
+                            "evenness": 0.646,
+                        },
+                        "genre": {
+                            "labels": [
+                                "교향곡",
+                                "협주곡",
+                                "관현악곡",
+                                "독주곡",
+                                "기타",
+                            ],
+                            "values": [1, 1, 1, 1, 2],
+                            "entropy": 1.5607,
+                            "evenness": 0.871,
+                        },
+                    },
+                )
+                self.assertEqual(
+                    diversity["timeline"],
+                    {
+                        "bucket": "week",
+                        "labels": ["2024-04-01", "2024-04-08"],
+                        "plays": [3, 3],
+                        "distinct_works": [1, 3],
+                        "era_evenness": [0.0, 0.3955],
+                        "genre_evenness": [0.3552, 0.6131],
+                    },
+                )
+
+    def test_genres_take_three_queries_and_diversity_two(self):
+        april = self.add_april_plays()
+        mentee = {"user_id": self.mentee.id, "include_mentees": "true"}
+        for params in ({}, april, {**april, **mentee}):
+            with self.subTest(params=params):
+                with self.assertNumQueries(3):
+                    self.get("genres", **params)
+                with self.assertNumQueries(2):
+                    self.get("diversity", **params)
+
+    def test_genres_and_diversity_build_no_model_instances(self):
+        # Loading every play and its players as model instances took about
+        # 0.5 s (genres) and 0.8 s (diversity) on 5,000 plays.
+        self.add_april_plays()
+        built = []
+        from_db = Model.from_db.__func__
+
+        def counting_from_db(cls, db, field_names, values):
+            built.append(cls.__name__)
+            return from_db(cls, db, field_names, values)
+
+        with mock.patch.object(Model, "from_db", classmethod(counting_from_db)):
+            for name in ("genres", "diversity"):
+                for bucket in ("week", "month"):
+                    self.assertEqual(self.get(name, bucket=bucket)["total_plays"], 12)
+        self.assertEqual(built, [])
+
     def test_timeline_buckets_by_month_week_or_semester(self):
         self.assertEqual(
             self.get("timeline"),
@@ -475,6 +912,81 @@ class StatsTests(StatsRequests, APITestCase):
         result = self.get("timeline", bucket="week", start="2024-12-01")
         self.assertEqual(result["labels"], ["2024-12-30"])
         self.assertEqual(result["values"], [1])
+
+    def test_timeline_lists_empty_weeks_and_months_with_zero(self):
+        self.add_play(datetime.date(2024, 5, 15), music=self.symphony)
+
+        with self.assertNumQueries(2):
+            month = self.get("timeline")
+        self.assertEqual(month["labels"], ["2024-02", "2024-03", "2024-04", "2024-05"])
+        self.assertEqual(month["values"], [1, 5, 0, 1])
+        self.assertEqual(month["total_plays"], 7)
+
+        week = self.get("timeline", bucket="week")
+        self.assertEqual(
+            week["labels"],
+            [
+                "2024-02-26",
+                "2024-03-04",
+                "2024-03-11",
+                "2024-03-18",
+                "2024-03-25",
+                "2024-04-01",
+                "2024-04-08",
+                "2024-04-15",
+                "2024-04-22",
+                "2024-04-29",
+                "2024-05-06",
+                "2024-05-13",
+            ],
+        )
+        self.assertEqual(week["values"], [1, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1])
+
+    def test_timeline_fills_months_across_the_new_year(self):
+        for date in ("2024-11-29", "2025-02-03"):
+            self.add_play(datetime.date.fromisoformat(date), music=self.symphony)
+
+        result = self.get("timeline", start="2024-06-01")
+        self.assertEqual(result["labels"], ["2024-11", "2024-12", "2025-01", "2025-02"])
+        self.assertEqual(result["values"], [1, 0, 0, 1])
+
+        # 2024-11-29 is a Friday (week of 11/25); 2025-02-03 is a Monday.
+        result = self.get("timeline", bucket="week", start="2024-06-01")
+        self.assertEqual(len(result["labels"]), 11)
+        self.assertEqual(result["labels"][0], "2024-11-25")
+        self.assertEqual(result["labels"][4], "2024-12-23")
+        self.assertEqual(result["labels"][5], "2024-12-30")
+        self.assertEqual(result["labels"][-1], "2025-02-03")
+        self.assertEqual(result["values"], [1] + [0] * 9 + [1])
+
+    def test_timeline_fills_only_between_the_first_and_last_play(self):
+        # The filter's own start and end add no empty buckets around the plays.
+        params = {"start": "2023-01-01", "end": "2025-12-31"}
+        result = self.get("timeline", **params)
+        self.assertEqual(result["labels"], ["2024-02", "2024-03"])
+        self.assertEqual(result["values"], [1, 5])
+
+        result = self.get("timeline", bucket="week", music_id=self.symphony.id)
+        self.assertEqual(result["labels"], ["2024-03-04"])
+        self.assertEqual(result["values"], [2])
+
+        empty = self.get("timeline", start="2030-01-01")
+        self.assertEqual((empty["labels"], empty["values"]), ([], []))
+
+    def test_timeline_ends_at_the_last_play_even_in_the_year_9999(self):
+        self.add_play(datetime.date(9999, 12, 31), music=self.symphony)
+        for bucket, label in (("week", "9999-12-27"), ("month", "9999-12")):
+            with self.subTest(bucket=bucket):
+                result = self.get("timeline", bucket=bucket, start="9999-01-01")
+                self.assertEqual(result["labels"], [label])
+                self.assertEqual(result["values"], [1])
+
+    def test_timeline_semesters_still_skip_a_semester_without_plays(self):
+        # Zero-filling covers weeks and months only.
+        self.add_play(datetime.date(2025, 3, 10), music=self.symphony)
+        result = self.get("timeline", bucket="semester")
+        self.assertEqual(result["labels"], ["2023-2", "2024-1", "2025-1"])
+        self.assertEqual(result["values"], [1, 5, 1])
 
     def test_start_and_end_are_inclusive(self):
         result = self.get("summary", start="2024-03-04", end="2024-03-06")
@@ -628,3 +1140,394 @@ class StatsTests(StatsRequests, APITestCase):
             )
         self.assertEqual(self.get("summary")["total_plays"], 26)
         self.assertEqual(query_counts(), before)
+
+    # composer_id, music_id, player_id, conductor_id and orchestra_id narrow the
+    # plays of every endpoint, for the drill-down from a chart's items.
+    def id_filters(self):
+        return [
+            ("composer_id", self.mozart.id, 2),
+            ("music_id", self.symphony.id, 2),
+            ("player_id", self.cellist.id, 2),
+            ("conductor_id", self.karajan.id, 2),
+            ("orchestra_id", self.vienna.id, 1),
+        ]
+
+    def test_each_id_filter_narrows_every_endpoint_and_is_echoed(self):
+        for param, value, plays in self.id_filters():
+            for name in ENDPOINTS:
+                with self.subTest(param=param, endpoint=name):
+                    result = self.get(name, **{param: value})
+                    self.assertEqual(result["total_plays"], plays)
+                    self.assertEqual(result["filters"][param], value)
+                    self.assertEqual(result["filters"]["scope"], "all")
+
+    def test_id_filters_narrow_the_counts(self):
+        mozart = {"composer_id": self.mozart.id}
+        summary = self.get("summary", **mozart)
+        self.assertEqual(
+            summary,
+            {
+                "filters": {"scope": "all", "composer_id": self.mozart.id},
+                "total_plays": 2,
+                "sessions": 2,
+                "requested": 0,
+                "composers": 1,
+                "works": 1,
+                "conductors": 2,
+                "orchestras": 2,
+                "date_start": "2024-03-04",
+                "date_end": "2024-03-06",
+            },
+        )
+        self.assertEqual(
+            self.counts(self.get("conductors", **mozart)), {"카라얀": 1, "번스타인": 1}
+        )
+
+        symphony = {"music_id": self.symphony.id}
+        self.assertEqual(self.counts(self.get("timeline", **symphony)), {"2024-03": 2})
+        self.assertEqual(self.counts(self.get("eras", **symphony)), {"고전": 2})
+
+        karajan = {"conductor_id": self.karajan.id}
+        self.assertEqual(
+            self.counts(self.get("works", **karajan)),
+            {"모차르트 - 교향곡 제40번": 1, "브람스 - 피아노 협주곡 제2번": 1},
+        )
+        self.assertEqual(
+            self.counts(self.get("orchestras", **karajan)), {"베를린 필하모닉": 2}
+        )
+
+        vienna = {"orchestra_id": self.vienna.id}
+        self.assertEqual(self.counts(self.get("conductors", **vienna)), {"번스타인": 1})
+
+        cellist = {"player_id": self.cellist.id}
+        self.assertEqual(
+            self.counts(self.get("composers", **cellist)), {"바흐": 1, "베토벤": 1}
+        )
+        self.assertEqual(
+            self.counts(self.get("genres", **cellist)), {"실내악곡": 1, "독주곡": 1}
+        )
+        # The soloists of those plays: the cellist and the quartet's other players.
+        self.assertEqual(
+            self.counts(self.get("soloists", **cellist)),
+            {
+                "첼리스트 (첼로)": 2,
+                "제1바이올린 (바이올린)": 1,
+                "제2바이올린 (바이올린)": 1,
+                "비올리스트 (비올라)": 1,
+            },
+        )
+        diversity = self.get("diversity", **cellist)
+        self.assertEqual(diversity["summary"]["distinct_works"], 2)
+        self.assertEqual(diversity["timeline"]["labels"], ["2024-02-26", "2024-03-11"])
+
+    def test_player_filter_counts_a_play_once_with_mentee_sessions(self):
+        pianist = Player.objects.get(name="피아니스트")
+        # The 3/4 session has two members and two mentees: the include_mentees
+        # OR join returns its concerto on four rows.
+        params = {
+            "user_id": self.mentee.id,
+            "include_mentees": "true",
+            "player_id": pianist.id,
+        }
+        for name in ENDPOINTS:
+            with self.subTest(endpoint=name):
+                result = self.get(name, **params)
+                self.assertEqual(result["total_plays"], 1)
+                self.assertEqual(result["filters"]["scope"], "individual")
+                self.assertEqual(result["filters"]["player_id"], pianist.id)
+        summary = self.get("summary", **params)
+        for key in ("composers", "works", "conductors", "orchestras"):
+            self.assertEqual(summary[key], 1)
+        self.assertEqual(
+            self.get("soloists", **params)["items"],
+            [{"id": pianist.id, "name": "피아니스트 (피아노)", "count": 1}],
+        )
+        self.assertEqual(self.counts(self.get("timeline", **params)), {"2024-03": 1})
+        self.assertEqual(self.counts(self.get("genres", **params)), {"협주곡": 1})
+
+    def test_id_filters_combine_with_each_other_and_the_period(self):
+        result = self.get(
+            "summary", composer_id=self.mozart.id, conductor_id=self.karajan.id
+        )
+        self.assertEqual(
+            result["filters"],
+            {
+                "scope": "all",
+                "composer_id": self.mozart.id,
+                "conductor_id": self.karajan.id,
+            },
+        )
+        self.assertEqual(result["total_plays"], 1)
+        self.assertEqual(result["date_start"], "2024-03-04")
+
+        result = self.get("summary", composer_id=self.mozart.id, start="2024-03-05")
+        self.assertEqual(result["total_plays"], 1)
+        self.assertEqual(result["date_start"], "2024-03-06")
+
+        result = self.get(
+            "summary", player_id=self.cellist.id, semester_id=self.spring_2024.id
+        )
+        self.assertEqual(result["total_plays"], 1)
+        self.assertEqual(result["date_start"], "2024-03-12")
+
+        bach = Composer.objects.get(name="바흐")
+        result = self.get("summary", composer_id=bach.id, conductor_id=self.karajan.id)
+        self.assertEqual(result["total_plays"], 0)
+
+    def test_unknown_ids_give_empty_stats(self):
+        for param in ("composer_id", "music_id", "player_id"):
+            with self.subTest(param=param):
+                self.assert_no_plays(**{param: 999999})
+        for param in ("conductor_id", "orchestra_id"):
+            with self.subTest(param=param):
+                self.assertEqual(self.get("summary", **{param: 0})["total_plays"], 0)
+
+    def test_malformed_id_filters_get_400_naming_the_parameter(self):
+        params = [p for p, _, _ in self.id_filters()]
+        for name in ENDPOINTS:
+            for param in params:
+                for value in ("abc", "1.5", "9" * 20, "-" + "9" * 20):
+                    with self.subTest(endpoint=name, param=param, value=value):
+                        error = self.get_error(name, **{param: value})
+                        self.assertEqual(list(error), [param])
+                        self.assertTrue(error[param])
+
+    def test_blank_id_filters_are_ignored(self):
+        params = {p: "" for p, _, _ in self.id_filters()}
+        result = self.get("summary", **params)
+        self.assertEqual(result["filters"], {"scope": "all"})
+        self.assertEqual(result["total_plays"], 6)
+
+    def test_id_filters_add_no_queries(self):
+        # A play that matches all five filters.
+        self.add_play(
+            datetime.date(2024, 3, 13),
+            users=[self.member],
+            players=[self.cellist, Player.objects.get(name="피아니스트")],
+            music=self.symphony,
+            conductor=self.karajan,
+            orchestra=self.vienna,
+        )
+        all_ids = {p: v for p, v, _ in self.id_filters()}
+        scopes = [
+            all_ids,
+            {**all_ids, "user_id": self.member.id, "include_mentees": "true"},
+        ]
+
+        def query_counts(params):
+            counts = {}
+            for name in ENDPOINTS:
+                with CaptureQueriesContext(connection) as queries:
+                    result = self.get(name, **params)
+                counts[name] = len(queries), result["total_plays"]
+            return counts
+
+        unfiltered = {name: n for name, (n, _) in query_counts({}).items()}
+        for params in scopes:
+            with self.subTest(params=params):
+                counts = query_counts(params)
+                self.assertEqual({k: n for k, (n, _) in counts.items()}, unfiltered)
+                self.assertEqual({t for _, t in counts.values()}, {1})
+
+        # The counts and the date span, as without filters.
+        with self.assertNumQueries(2):
+            self.get("summary", **all_ids)
+
+    # stats/firsts: the composers or works first played in the club in the
+    # filtered range, for the 학기 결산.
+    def test_firsts_list_composers_by_first_play_then_name(self):
+        result = self.get("firsts")
+        self.assertEqual(result["filters"], {"scope": "all", "kind": "composer"})
+        self.assertEqual(result["total_plays"], 6)
+        ids = {c.name: c.id for c in Composer.objects.all()}
+        self.assertEqual(
+            result["items"],
+            [
+                {
+                    "id": ids["바흐"],
+                    "name": "바흐",
+                    "count": 1,
+                    "first_played": "2024-02-29",
+                },
+                {
+                    "id": ids["모차르트"],
+                    "name": "모차르트",
+                    "count": 2,
+                    "first_played": "2024-03-04",
+                },
+                {
+                    "id": ids["브람스"],
+                    "name": "브람스",
+                    "count": 1,
+                    "first_played": "2024-03-04",
+                },
+                {
+                    "id": ids["베토벤"],
+                    "name": "베토벤",
+                    "count": 1,
+                    "first_played": "2024-03-12",
+                },
+                {
+                    "id": ids["작자 미상"],
+                    "name": "작자 미상",
+                    "count": 1,
+                    "first_played": "2024-03-12",
+                },
+            ],
+        )
+        self.assertEqual(
+            result["labels"], ["바흐", "모차르트", "브람스", "베토벤", "작자 미상"]
+        )
+        self.assertEqual(result["values"], [1, 2, 1, 1, 1])
+
+    def test_firsts_on_the_same_day_are_ordered_by_name_then_id(self):
+        # Added after 베토벤 and 작자 미상, first played the same day.
+        gabrieli = Composer.objects.create(name="가브리엘리")
+        twin = Composer.objects.create(name="가브리엘리")
+        for time, composer in ((2, twin), (3, gabrieli)):
+            self.add_play(
+                datetime.date(2024, 3, 12),
+                time=time,
+                music=Music.objects.create(composer=composer, title="칸초나"),
+            )
+        result = self.get("firsts", start="2024-03-12")
+        self.assertEqual(
+            [(item["id"], item["name"]) for item in result["items"]],
+            [
+                (gabrieli.id, "가브리엘리"),
+                (twin.id, "가브리엘리"),
+                (Composer.objects.get(name="베토벤").id, "베토벤"),
+                (Composer.objects.get(name="작자 미상").id, "작자 미상"),
+            ],
+        )
+
+    def test_firsts_list_works_named_like_stats_works(self):
+        result = self.get("firsts", kind="work", start="2024-03-01")
+        self.assertEqual(
+            result["filters"],
+            {"scope": "all", "start": "2024-03-01", "kind": "work"},
+        )
+        self.assertEqual(result["total_plays"], 5)
+        self.assertEqual(
+            result["items"],
+            [
+                {
+                    "id": self.symphony.id,
+                    "name": "모차르트 - 교향곡 제40번",
+                    "count": 2,
+                    "first_played": "2024-03-04",
+                },
+                {
+                    "id": Music.objects.get(title="피아노 협주곡 제2번").id,
+                    "name": "브람스 - 피아노 협주곡 제2번",
+                    "count": 1,
+                    "first_played": "2024-03-04",
+                },
+                {
+                    "id": Music.objects.get(title="현악 사중주 제14번").id,
+                    "name": "베토벤 - 현악 사중주 제14번",
+                    "count": 1,
+                    "first_played": "2024-03-12",
+                },
+                {
+                    "id": Music.objects.get(title="그레고리오 성가").id,
+                    "name": "작자 미상 - 그레고리오 성가",
+                    "count": 1,
+                    "first_played": "2024-03-12",
+                },
+            ],
+        )
+
+    def test_firsts_first_play_is_all_time_not_the_filtered_range(self):
+        # Mozart and his symphony were first played on 3/4, before the range,
+        # so their 3/6 play is not a first.
+        composers = self.get("firsts", start="2024-03-05")
+        self.assertEqual(composers["labels"], ["베토벤", "작자 미상"])
+        works = self.get("firsts", kind="work", start="2024-03-05")
+        self.assertEqual(
+            works["labels"],
+            ["베토벤 - 현악 사중주 제14번", "작자 미상 - 그레고리오 성가"],
+        )
+        # Bach was first played on the leap day, the end of fall 2023.
+        result = self.get("firsts", semester_id=self.fall_2023.id)
+        self.assertEqual(result["labels"], ["바흐"])
+        self.assertEqual(
+            self.get("firsts", semester_id=self.spring_2024.id)["labels"],
+            ["모차르트", "브람스", "베토벤", "작자 미상"],
+        )
+        self.assertEqual(self.get("firsts", start="2024-03-13")["items"], [])
+
+    def test_firsts_count_only_the_plays_in_the_filtered_range(self):
+        self.add_play(datetime.date(2024, 9, 2), music=self.symphony)
+        result = self.get("firsts", start="2024-03-04", end="2024-03-06")
+        self.assertEqual(self.counts(result), {"모차르트": 2, "브람스": 1})
+        result = self.get("firsts", start="2024-03-04")
+        self.assertEqual(self.counts(result)["모차르트"], 3)
+        self.assertEqual(result["items"][0]["first_played"], "2024-03-04")
+        # Played again in fall 2024, but first played in spring.
+        self.assertEqual(self.get("firsts", semester_id=self.fall_2024.id)["items"], [])
+
+    def test_firsts_take_the_other_filters(self):
+        # The member played Bach on 2/29 and Mozart and Brahms on 3/4.
+        result = self.get("firsts", user_id=self.member.id, start="2024-03-01")
+        self.assertEqual(self.counts(result), {"모차르트": 1, "브람스": 1})
+        result = self.get("firsts", user_id=self.mentee.id)
+        self.assertEqual(self.counts(result), {"베토벤": 1, "작자 미상": 1})
+        result = self.get("firsts", kind="work", conductor_id=self.karajan.id)
+        self.assertEqual(
+            self.counts(result),
+            {"모차르트 - 교향곡 제40번": 1, "브람스 - 피아노 협주곡 제2번": 1},
+        )
+        result = self.get("firsts", player_id=self.cellist.id, start="2024-03-01")
+        self.assertEqual(self.counts(result), {"베토벤": 1})
+        # Bernstein conducted the symphony on 3/6, after its first play on 3/4.
+        result = self.get("firsts", conductor_id=self.bernstein.id, start="2024-03-05")
+        self.assertEqual(result["items"], [])
+
+    def test_firsts_count_a_play_once_with_mentee_sessions(self):
+        # The 3/4 session has two members and two mentees, so the OR across both
+        # M2M joins returns each of its plays on more than one row.
+        params = {"user_id": self.mentee.id, "include_mentees": "true"}
+        result = self.get("firsts", **params)
+        self.assertEqual(result["total_plays"], 5)
+        self.assertEqual(
+            self.counts(result),
+            {"모차르트": 2, "브람스": 1, "베토벤": 1, "작자 미상": 1},
+        )
+        result = self.get("firsts", kind="work", **params)
+        self.assertEqual(sum(result["values"]), 5)
+
+    def test_firsts_leave_out_plays_without_a_work(self):
+        self.add_play(datetime.date(2024, 3, 13))
+        for kind in ("composer", "work"):
+            with self.subTest(kind=kind):
+                result = self.get("firsts", kind=kind, start="2024-03-13")
+                self.assertEqual(result["total_plays"], 1)
+                self.assertEqual(result["items"], [])
+
+    def test_firsts_kind_must_be_composer_or_work(self):
+        for kind in ("composers", "Work", "player", "1"):
+            with self.subTest(kind=kind):
+                error = self.get_error("firsts", kind=kind)
+                self.assertEqual(list(error), ["kind"])
+                self.assertTrue(error["kind"])
+        error = self.get_error("firsts", kind="x", start="garbage")
+        self.assertEqual(set(error), {"kind", "start"})
+        blank = self.get("firsts", kind="")
+        self.assertEqual(blank["filters"]["kind"], "composer")
+        self.assertEqual(len(blank["items"]), 5)
+
+    def test_firsts_take_two_queries(self):
+        scopes = [
+            {},
+            {"kind": "work"},
+            {"user_id": self.mentee.id, "include_mentees": "true", "kind": "work"},
+            {"start": "2025-01-01"},
+        ]
+        for params in scopes:
+            with self.subTest(params=params):
+                with self.assertNumQueries(2):
+                    self.get("firsts", **params)
+        # The semester's months take one more.
+        with self.assertNumQueries(3):
+            self.get("firsts", semester_id=self.spring_2024.id)

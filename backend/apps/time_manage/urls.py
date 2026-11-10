@@ -12,7 +12,9 @@ from .stats import (
     EraDistributionStatsView,
     GenreDistributionStatsView,
     DiversityStatsView,
+    FirstPlaysStatsView,
 )
+from .catalog import CatalogDuplicatesView
 
 router = DefaultRouter()
 router.register(r"user", UserViewSet, basename="user")
@@ -53,6 +55,7 @@ urlpatterns = [
         name="check-duplicate",
     ),
     path("recent-plays/", RecentPlaysView.as_view(), name="recent-plays"),
+    path("plays/", PlaysView.as_view(), name="plays"),
     # 통계
     path("stats/summary/", StatsSummaryView.as_view(), name="stats-summary"),
     path("stats/composers/", TopComposersStatsView.as_view(), name="stats-composers"),
@@ -68,4 +71,11 @@ urlpatterns = [
     path("stats/eras/", EraDistributionStatsView.as_view(), name="stats-eras"),
     path("stats/genres/", GenreDistributionStatsView.as_view(), name="stats-genres"),
     path("stats/diversity/", DiversityStatsView.as_view(), name="stats-diversity"),
+    path("stats/firsts/", FirstPlaysStatsView.as_view(), name="stats-firsts"),
+    # 카탈로그 품질
+    path(
+        "catalog/duplicates/",
+        CatalogDuplicatesView.as_view(),
+        name="catalog-duplicates",
+    ),
 ]
