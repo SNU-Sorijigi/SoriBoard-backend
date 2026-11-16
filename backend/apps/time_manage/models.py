@@ -16,6 +16,8 @@ class User(models.Model):
     )  # 사부
     join_year = models.IntegerField(null=True, blank=True, default=None)  # 입부년도
     join_semester = models.IntegerField(null=True, blank=True, default=None)  # 입부학기
+    # 소리지기에서 맡았던 직책, free text (예: "회장(2019), 총무(2018-2)")
+    position = models.CharField(max_length=100, blank=True, default="")
 
     class Meta:
         db_table = "user"
