@@ -43,6 +43,7 @@ class UserReadTests(APITestCase):
             "is_ob": user.is_ob,
             "join_year": user.join_year,
             "join_semester": user.join_semester,
+            "position": user.position,
             "sabu_id": user.sabu_id_id,
         }
 
@@ -188,6 +189,34 @@ class UserWriteTests(APITestCase):
         self.assertEqual(User.objects.count(), 1)
         self.assertEqual(self.joined(self.jigi), (2022, 2))
         self.assertEqual(self.jigi.name, "김지기")
+
+    def test_a_position_is_saved_as_sent_and_empty_without_one(self):
+        response = self.add()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["position"], "")
+
+        response = self.edit(position=" 회장(2019), 총무(2018-2) ")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["position"], "회장(2019), 총무(2018-2)")
+        self.jigi.refresh_from_db()
+        self.assertEqual(self.jigi.position, "회장(2019), 총무(2018-2)")
+
+        self.assertEqual(self.edit(position="").status_code, 200)
+        self.jigi.refresh_from_db()
+        self.assertEqual(self.jigi.position, "")
+
+    def test_an_edit_without_a_position_keeps_it(self):
+        # A form from before the field existed sends none.
+        User.objects.filter(pk=self.jigi.pk).update(position="회장(2019)")
+        self.assertEqual(self.edit().status_code, 200)
+        self.jigi.refresh_from_db()
+        self.assertEqual(self.jigi.position, "회장(2019)")
+
+    def test_a_position_over_100_characters_is_a_400(self):
+        self.assertEqual(self.edit(position="가" * 100).status_code, 200)
+        response = self.edit(position="가" * 101)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("position", response.json())
 
 
 class UserDeleteTests(APITestCase):
